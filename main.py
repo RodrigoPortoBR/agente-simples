@@ -1,8 +1,18 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import os
 
-app = FastAPI(title="Agente Simples")
+app = FastAPI(title="Agente Simples" )
+
+# ADICIONAR CORS - MUITO IMPORTANTE!
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Permite todos os domínios
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/")
 def home():
@@ -17,8 +27,7 @@ def webhook(data: dict):
     user_message = data.get("user_message", "")
     session_id = data.get("session_id", "test")
     
-    # Resposta simples sem IA (para testar)
-    response = f"Olá! Recebi sua mensagem: '{user_message}'. Em breve terei IA integrada!"
+    response = f"Olá! Recebi sua mensagem: '{user_message}'. Sistema funcionando!"
     
     return {
         "response": response,
