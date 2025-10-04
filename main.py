@@ -6,7 +6,7 @@ import os
 import uvicorn
 import json
 import asyncpg
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime
 from enum import Enum
 
@@ -65,6 +65,9 @@ conversations = {}
 # ================================
 # AGENTE SQL ESPECIALISTA
 # ================================
+# ================================
+# AGENTE SQL ESPECIALISTA
+# ================================
 class SQLAgent:
     """Agente especialista em consultas SQL - retorna apenas JSON"""
     
@@ -106,7 +109,7 @@ class SQLAgent:
         except Exception as e:
             return f"Erro ao obter schema: {str(e)}"
     
-    def validate_sql_security(self, sql_query: str) -> tuple[bool, str]:
+    def validate_sql_security(self, sql_query: str):
         """Valida segurança da consulta"""
         sql_upper = sql_query.upper().strip()
         
@@ -160,7 +163,7 @@ Responda APENAS com a consulta SQL:
         except Exception as e:
             return f"SELECT 'Erro na geração: {str(e)}' as erro"
     
-    async def execute_sql(self, sql_query: str) -> Dict[str, Any]:
+    async def execute_sql(self, sql_query: str):
         """Executa SQL e retorna dados estruturados"""
         try:
             start_time = datetime.now()
