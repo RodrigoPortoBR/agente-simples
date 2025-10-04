@@ -61,20 +61,29 @@ class SQLAgent:
         self.client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     
     def is_sql_safe(self, sql_query: str) -> tuple[bool, str]:
-        """Valida se a consulta SQL é segura"""
-        sql_upper = sql_query.upper().strip()
-        
-        # Apenas SELECT é permitido
-        if not sql_upper.startswith('SELECT'):
-            return False, "Apenas consultas SELECT são permitidas"
-        
-        # Palavras proibidas
-        forbidden_words = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE', 'TRUNCATE', '--', ';']
-        for word in forbidden_words:
-            if word in sql_upper:
-                return False, f"Palavra proibida encontrada: {word}"
-        
-        return True, "Consulta aprovada"
+    """Valida se a consulta SQL é segura"""
+    sql_upper = sql_query.upper().strip()
+    
+    # Remover espaços extras e quebras de linha
+    sql_clean = ' '.join(sql_upper.split())
+    
+    # Apenas SELECT é permitido
+    if not sql_clean.startswith('SELECT'):
+        return False, "Apenas consultas SELECT são permitidas"
+    
+    # Palavras realmente perigosas (não incluir ; que é comum)
+    forbidden_words = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE', 'TRUNCATE', 'EXEC', 'EXECUTE']
+    
+    for word in forbidden_words:
+        # Verificar se a palavra aparece como palavra completa (não parte de outra)
+        if f' {word} ' in f' {sql_clean} ' or sql_clean.startswith(f'{word} ') or sql_clean.endswith(f' {word}'):
+            return False, f"Operação não permitida: {word}"
+    
+    # Verificar comentários maliciosos
+    if '--' in sql_query or '/*' in sql_query:
+        return False, "Comentários não são permitidos"
+    
+    return True, "Consulta aprovada"
     
     def generate_sql_query(self, user_question: str, context: Dict[str, Any]) -> str:
         """Gera consulta SQL baseada na pergunta do usuário"""
