@@ -5,12 +5,12 @@ import openai
 import os
 import uvicorn
 import json
-import asyncpg
-from typing import List, Optional, Dict, Any, Tuple
+import httpx
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 from enum import Enum
 
-app = FastAPI(title="Sistema de Agentes Orquestradores")
+app = FastAPI(title="Sistema de Agentes Orquestradores" )
 
 # CORS
 app.add_middleware(
@@ -63,86 +63,100 @@ class OrchestratorResponse(BaseModel):
 conversations = {}
 
 # ================================
-# AGENTE SQL ESPECIALISTA
-# ================================
-# ================================
-# AGENTE SQL ESPECIALISTA
+# AGENTE SQL ESPECIALISTA (API)
 # ================================
 class SQLAgent:
-    """Agente especialista em consultas SQL - retorna apenas JSON"""
+    """Agente especialista em consultas SQL via Supabase API"""
     
     def __init__(self):
         self.client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        self.db_url = os.getenv("SUPABASE_DATABASE_URL")
+        self.supabase_url = os.getenv("SUPABASE_URL")
+        self.supabase_key = os.getenv("SUPABASE_ANON_KEY")
+        
+        # Headers para Supabase API
+        self.headers = {
+            "apikey": self.supabase_key,
+            "Authorization": f"Bearer {self.supabase_key}",
+            "Content-Type": "application/json"
+        }
     
     async def get_database_schema(self) -> str:
-        """Obtém esquema do banco para contexto"""
+        """Obtém informações das tabelas via API do Supabase"""
         try:
-            conn = await asyncpg.connect(self.db_url)
-            
-            schema_query = """
-            SELECT 
-                table_name,
-                column_name,
-                data_type
-            FROM information_schema.columns 
-            WHERE table_schema = 'public' 
-            ORDER BY table_name, ordinal_position;
-            """
-            
-            rows = await conn.fetch(schema_query)
-            await conn.close()
-            
-            schema_info = {}
-            for row in rows:
-                table = row['table_name']
-                if table not in schema_info:
-                    schema_info[table] = []
-                schema_info[table].append(f"{row['column_name']} ({row['data_type']})")
-            
-            schema_text = "TABELAS DISPONÍVEIS:\n"
-            for table, columns in schema_info.items():
-                schema_text += f"\n{table}: {', '.join(columns)}"
-            
-            return schema_text
-            
+            async with httpx.AsyncClient( ) as client:
+                # Fazer uma requisição para descobrir tabelas
+                # Vamos tentar algumas tabelas comuns primeiro
+                common_tables = ["users", "profiles", "posts", "products", "orders", "sales", "customers"]
+                
+                available_tables = []
+                
+                for table in common_tables:
+                    try:
+                        response = await client.get(
+                            f"{self.supabase_url}/rest/v1/{table}?limit=1",
+                            headers=self.headers
+                        )
+                        if response.status_code == 200:
+                            data = response.json()
+                            if data:  # Se retornou dados, a tabela existe
+                                # Pegar as colunas do primeiro registro
+                                columns = list(data[0].keys()) if data else []
+                                available_tables.append(f"{table}: {', '.join(columns)}")
+                            else:
+                                available_tables.append(f"{table}: (tabela vazia)")
+                    except:
+                        continue
+                
+                if available_tables:
+                    return "TABELAS DISPONÍVEIS:\n" + "\n".join(available_tables)
+                else:
+                    return "Nenhuma tabela comum encontrada. Tabelas possíveis: users, profiles, posts, products, orders"
+                    
         except Exception as e:
             return f"Erro ao obter schema: {str(e)}"
     
-    def validate_sql_security(self, sql_query: str):
-        """Valida segurança da consulta"""
-        sql_upper = sql_query.upper().strip()
+    def validate_sql_security(self, user_question: str):
+        """Valida se a pergunta é segura (não usamos SQL direto na API)"""
+        # Para API, validamos a intenção em vez de SQL
+        dangerous_words = ['delete', 'drop', 'truncate', 'alter', 'create', 'update']
+        question_lower = user_question.lower()
         
-        if not sql_upper.startswith('SELECT'):
-            return False, "Apenas consultas SELECT são permitidas"
-        
-        forbidden = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE', 'TRUNCATE']
-        for word in forbidden:
-            if word in sql_upper:
+        for word in dangerous_words:
+            if word in question_lower:
                 return False, f"Operação {word} não permitida"
         
-        return True, "Consulta aprovada"
+        return True, "Pergunta aprovada"
     
-    async def generate_sql(self, user_question: str) -> str:
-        """Gera consulta SQL baseada na pergunta"""
+    async def analyze_question_and_build_api_call(self, user_question: str) -> Dict[str, Any]:
+        """Analisa a pergunta e determina qual chamada de API fazer"""
         try:
             schema = await self.get_database_schema()
             
             prompt = f"""
-Você é um especialista em SQL PostgreSQL. Gere uma consulta SQL segura baseada na pergunta.
+Você é um especialista em API Supabase. Analise a pergunta do usuário e determine:
+1. Qual tabela consultar
+2. Que tipo de operação (count, select, filter)
+3. Quais parâmetros usar
 
 {schema}
 
-REGRAS:
-- Use apenas SELECT
-- Use nomes exatos das tabelas/colunas do schema
-- Adicione LIMIT 100 para performance
-- Não use ponto e vírgula
-- Sintaxe PostgreSQL
+OPERAÇÕES DISPONÍVEIS:
+- Contar registros: GET /table?select=count()
+- Listar registros: GET /table?limit=10
+- Filtrar por data: GET /table?created_at=gte.2024-01-01
+- Ordenar: GET /table?order=created_at.desc
 
 Pergunta: "{user_question}"
 
-Responda APENAS com a consulta SQL:
+Responda em JSON com:
+{{
+  "table": "nome_da_tabela",
+  "operation": "count|select|filter",
+  "params": {{"limit": 10, "select": "*", "order": "created_at.desc"}},
+  "description": "descrição da operação"
+}}
+
+Responda APENAS com o JSON:
 """
             
             response = self.client.chat.completions.create(
@@ -152,48 +166,71 @@ Responda APENAS com a consulta SQL:
                 temperature=0.1
             )
             
-            sql_query = response.choices[0].message.content.strip()
-            sql_query = sql_query.replace('```sql', '').replace('```', '').strip()
+            api_plan = response.choices[0].message.content.strip()
             
-            if sql_query.endswith(';'):
-                sql_query = sql_query[:-1]
-            
-            return sql_query
-            
+            # Tentar fazer parse do JSON
+            try:
+                return json.loads(api_plan)
+            except:
+                # Fallback se não conseguir fazer parse
+                return {
+                    "table": "users",
+                    "operation": "count",
+                    "params": {"select": "count()"},
+                    "description": "Contagem de registros"
+                }
+                
         except Exception as e:
-            return f"SELECT 'Erro na geração: {str(e)}' as erro"
+            return {
+                "table": "users",
+                "operation": "select",
+                "params": {"limit": 5},
+                "description": f"Erro na análise: {str(e)}"
+            }
     
-    async def execute_sql(self, sql_query: str):
-        """Executa SQL e retorna dados estruturados"""
+    async def execute_supabase_api_call(self, api_plan: Dict[str, Any]) -> Dict[str, Any]:
+        """Executa a chamada para API do Supabase"""
         try:
             start_time = datetime.now()
             
-            conn = await asyncpg.connect(self.db_url)
-            rows = await conn.fetch(sql_query)
-            await conn.close()
+            table = api_plan.get("table", "users")
+            params = api_plan.get("params", {})
             
-            execution_time = (datetime.now() - start_time).total_seconds()
+            # Construir URL da API
+            url = f"{self.supabase_url}/rest/v1/{table}"
             
-            # Converter para JSON serializável
-            results = []
-            for row in rows:
-                row_dict = {}
-                for key, value in row.items():
-                    if hasattr(value, 'isoformat'):
-                        row_dict[key] = value.isoformat()
-                    elif isinstance(value, (int, float, str, bool)) or value is None:
-                        row_dict[key] = value
-                    else:
-                        row_dict[key] = str(value)
-                results.append(row_dict)
+            # Construir query parameters
+            query_params = []
+            for key, value in params.items():
+                query_params.append(f"{key}={value}")
             
-            return {
-                "success": True,
-                "data": results,
-                "row_count": len(results),
-                "execution_time": execution_time
-            }
+            if query_params:
+                url += "?" + "&".join(query_params)
             
+            # Fazer requisição
+            async with httpx.AsyncClient( ) as client:
+                response = await client.get(url, headers=self.headers)
+                
+                execution_time = (datetime.now() - start_time).total_seconds()
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    
+                    return {
+                        "success": True,
+                        "data": data,
+                        "row_count": len(data) if isinstance(data, list) else 1,
+                        "execution_time": execution_time,
+                        "api_url": url
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": f"API Error {response.status_code}: {response.text}",
+                        "data": [],
+                        "row_count": 0
+                    }
+                    
         except Exception as e:
             return {
                 "success": False,
@@ -203,27 +240,26 @@ Responda APENAS com a consulta SQL:
             }
     
     async def process_data_request(self, request: SQLRequest) -> SQLResponse:
-        """Método principal do agente SQL - retorna JSON estruturado"""
+        """Método principal do agente SQL - usa API do Supabase"""
         try:
-            # 1. Gerar SQL
-            sql_query = await self.generate_sql(request.user_question)
-            
-            # 2. Validar segurança
-            is_safe, reason = self.validate_sql_security(sql_query)
+            # 1. Validar pergunta
+            is_safe, reason = self.validate_sql_security(request.user_question)
             if not is_safe:
                 return SQLResponse(
                     success=False,
-                    error=f"Consulta rejeitada: {reason}",
-                    sql_query=sql_query
+                    error=f"Pergunta rejeitada: {reason}"
                 )
             
-            # 3. Executar
-            execution_result = await self.execute_sql(sql_query)
+            # 2. Analisar pergunta e planejar chamada API
+            api_plan = await self.analyze_question_and_build_api_call(request.user_question)
+            
+            # 3. Executar chamada API
+            execution_result = await self.execute_supabase_api_call(api_plan)
             
             # 4. Retornar resposta estruturada
             return SQLResponse(
                 success=execution_result["success"],
-                sql_query=sql_query,
+                sql_query=f"API: {api_plan.get('description', 'Consulta via API')}",
                 data=execution_result["data"],
                 row_count=execution_result["row_count"],
                 error=execution_result.get("error"),
@@ -259,7 +295,7 @@ INTENÇÕES:
 
 Mensagem: "{user_message}"
 
-Palavras-chave para data_analysis: quantos, quanto, mostre, liste, dados, relatório, total, média, últimos, contar, somar, análise
+Palavras-chave para data_analysis: quantos, quanto, mostre, liste, dados, relatório, total, média, últimos, contar, somar, análise, usuários, vendas, produtos
 
 Responda apenas: general_chat, data_analysis ou help
 """
@@ -308,7 +344,7 @@ Responda apenas: general_chat, data_analysis ou help
         try:
             if sql_response.success:
                 prompt = f"""
-Você é um assistente que converte dados estruturados em respostas naturais.
+Você é um assistente que converte dados da API em respostas naturais.
 
 Pergunta do usuário: "{user_question}"
 Dados retornados: {json.dumps(sql_response.data[:5], ensure_ascii=False, indent=2)}
@@ -323,7 +359,7 @@ Crie uma resposta em português brasileiro que:
 - Use emojis ocasionalmente
 - Se houver muitos registros, destaque os principais
 
-Exemplo: "Encontrei {sql_response.row_count} registros. Os principais dados mostram que..."
+Exemplo: "Encontrei {sql_response.row_count} registros. Os dados mostram que..."
 """
             else:
                 prompt = f"""
@@ -389,7 +425,7 @@ Características:
         except Exception as e:
             return f"Desculpe, ocorreu um erro: {str(e)}"
     
-    async def process_user_message(self, user_message: str, session_id: str, history: List) -> tuple[str, str, bool]:
+    async def process_user_message(self, user_message: str, session_id: str, history: List):
         """Método principal do orquestrador"""
         try:
             # 1. Analisar intenção do usuário
@@ -403,9 +439,9 @@ Características:
             elif intent == IntentType.HELP:
                 response = """Olá! 😊 Sou seu assistente inteligente. Posso ajudar você com:
 
-📊 **Análise de dados**: Faça perguntas sobre seus dados e eu consultarei o banco para você
+📊 **Análise de dados**: Faça perguntas sobre seus dados e eu consultarei via API
 💬 **Conversas gerais**: Posso conversar sobre diversos assuntos
-🔍 **Consultas específicas**: "Quantos usuários temos?", "Mostre as vendas do mês", etc.
+🔍 **Consultas específicas**: "Quantos usuários temos?", "Mostre os últimos registros", etc.
 
 Como posso ajudar você hoje?"""
                 return response, "orchestrator", False
@@ -428,9 +464,9 @@ orchestrator = OrchestratorAgent()
 def home():
     return {
         "message": "🤖 Sistema de Agentes Orquestradores funcionando!",
-        "architecture": "Orquestrador + Agente SQL",
-        "agents": ["orchestrator", "sql_specialist"],
-        "database": "Supabase",
+        "architecture": "Orquestrador + Agente SQL via API",
+        "agents": ["orchestrator", "sql_api_specialist"],
+        "database": "Supabase API",
         "status": "online"
     }
 
@@ -441,7 +477,8 @@ def health():
         "orchestrator": "online",
         "sql_agent": "online",
         "openai_configured": bool(os.getenv("OPENAI_API_KEY")),
-        "supabase_configured": bool(os.getenv("SUPABASE_DATABASE_URL")),
+        "supabase_url_configured": bool(os.getenv("SUPABASE_URL")),
+        "supabase_key_configured": bool(os.getenv("SUPABASE_ANON_KEY")),
         "timestamp": datetime.now().isoformat()
     }
 
