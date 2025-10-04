@@ -63,7 +63,7 @@ class OrchestratorResponse(BaseModel):
 conversations = {}
 
 # ================================
-# AGENTE SQL ESPECIALISTA (API)
+# AGENTE SQL ESPECIALISTA
 # ================================
 class SQLAgent:
     """Agente especialista em consultas SQL via Supabase API"""
@@ -81,43 +81,51 @@ class SQLAgent:
         }
     
     async def get_database_schema(self) -> str:
-        """Obtém informações das tabelas via API do Supabase"""
+        """Obtém informações das tabelas reais do projeto"""
         try:
+            # Suas tabelas reais
+            real_tables = ["clientes", "clusters", "monthly_series", "pedidos"]
+            
+            available_tables = []
+            
             async with httpx.AsyncClient( ) as client:
-                # Fazer uma requisição para descobrir tabelas
-                # Vamos tentar algumas tabelas comuns primeiro
-                common_tables = ["users", "profiles", "posts", "products", "orders", "sales", "customers"]
-                
-                available_tables = []
-                
-                for table in common_tables:
+                for table in real_tables:
                     try:
                         response = await client.get(
                             f"{self.supabase_url}/rest/v1/{table}?limit=1",
-                            headers=self.headers
+                            headers=self.headers,
+                            timeout=10.0
                         )
+                        
                         if response.status_code == 200:
                             data = response.json()
-                            if data:  # Se retornou dados, a tabela existe
-                                # Pegar as colunas do primeiro registro
-                                columns = list(data[0].keys()) if data else []
-                                available_tables.append(f"{table}: {', '.join(columns)}")
+                            if isinstance(data, list) and data:
+                                columns = list(data[0].keys())
+                                available_tables.append(f"✅ {table}: {', '.join(columns[:8])}")
                             else:
-                                available_tables.append(f"{table}: (tabela vazia)")
-                    except:
-                        continue
-                
-                if available_tables:
-                    return "TABELAS DISPONÍVEIS:\n" + "\n".join(available_tables)
-                else:
-                    return "Nenhuma tabela comum encontrada. Tabelas possíveis: users, profiles, posts, products, orders"
-                    
+                                available_tables.append(f"✅ {table}: (tabela vazia)")
+                        
+                    except Exception as e:
+                        available_tables.append(f"❌ {table}: erro - {str(e)[:50]}")
+            
+            schema_description = """
+TABELAS DISPONÍVEIS NO SEU E-COMMERCE:
+
+📊 clientes: Informações dos clientes (receita, margem, cluster, etc.)
+📈 clusters: Dados agregados por cluster de clientes  
+📅 monthly_series: Séries temporais mensais
+🛒 pedidos: Histórico de pedidos por cliente
+
+COLUNAS ENCONTRADAS:
+""" + "\n".join(available_tables)
+            
+            return schema_description
+            
         except Exception as e:
             return f"Erro ao obter schema: {str(e)}"
     
     def validate_sql_security(self, user_question: str):
-        """Valida se a pergunta é segura (não usamos SQL direto na API)"""
-        # Para API, validamos a intenção em vez de SQL
+        """Valida se a pergunta é segura"""
         dangerous_words = ['delete', 'drop', 'truncate', 'alter', 'create', 'update']
         question_lower = user_question.lower()
         
@@ -133,30 +141,33 @@ class SQLAgent:
             schema = await self.get_database_schema()
             
             prompt = f"""
-Você é um especialista em API Supabase. Analise a pergunta do usuário e determine:
-1. Qual tabela consultar
-2. Que tipo de operação (count, select, filter)
-3. Quais parâmetros usar
+Você é um especialista em API Supabase para análise de dados de e-commerce.
 
 {schema}
 
 OPERAÇÕES DISPONÍVEIS:
-- Contar registros: GET /table?select=count()
-- Listar registros: GET /table?limit=10
-- Filtrar por data: GET /table?created_at=gte.2024-01-01
-- Ordenar: GET /table?order=created_at.desc
+- Contar registros: ?select=count()
+- Listar registros: ?limit=10&order=coluna.desc
+- Filtrar: ?coluna=eq.valor
+- Agregações: ?select=sum(coluna),avg(coluna)
+- Top clientes: ?order=receita.desc&limit=10
+
+EXEMPLOS DE CONSULTAS:
+- "quantos clientes" → tabela: clientes, operação: count
+- "clientes com maior receita" → tabela: clientes, order: receita.desc
+- "margem bruta média" → tabela: clientes, select: avg(margem)
+- "pedidos de um cliente" → tabela: pedidos, filter por cliente_id
+- "análise por cluster" → tabela: clusters
 
 Pergunta: "{user_question}"
 
-Responda em JSON com:
+Responda em JSON:
 {{
   "table": "nome_da_tabela",
-  "operation": "count|select|filter",
-  "params": {{"limit": 10, "select": "*", "order": "created_at.desc"}},
+  "operation": "count|select|aggregate",
+  "params": {{"select": "*", "limit": 10, "order": "coluna.desc"}},
   "description": "descrição da operação"
 }}
-
-Responda APENAS com o JSON:
 """
             
             response = self.client.chat.completions.create(
@@ -168,21 +179,52 @@ Responda APENAS com o JSON:
             
             api_plan = response.choices[0].message.content.strip()
             
-            # Tentar fazer parse do JSON
             try:
                 return json.loads(api_plan)
             except:
-                # Fallback se não conseguir fazer parse
-                return {
-                    "table": "users",
-                    "operation": "count",
-                    "params": {"select": "count()"},
-                    "description": "Contagem de registros"
-                }
+                # Fallback baseado em palavras-chave
+                question_lower = user_question.lower()
+                
+                if "cliente" in question_lower:
+                    if "quantos" in question_lower or "count" in question_lower:
+                        return {
+                            "table": "clientes",
+                            "operation": "count",
+                            "params": {"select": "count()"},
+                            "description": "Contagem de clientes"
+                        }
+                    else:
+                        return {
+                            "table": "clientes",
+                            "operation": "select",
+                            "params": {"limit": 10, "order": "gm_12m.desc"},
+                            "description": "Lista de clientes por margem"
+                        }
+                elif "pedido" in question_lower:
+                    return {
+                        "table": "pedidos",
+                        "operation": "select",
+                        "params": {"limit": 10},
+                        "description": "Lista de pedidos"
+                    }
+                elif "cluster" in question_lower:
+                    return {
+                        "table": "clusters",
+                        "operation": "select",
+                        "params": {"limit": 10},
+                        "description": "Análise por clusters"
+                    }
+                else:
+                    return {
+                        "table": "clientes",
+                        "operation": "select",
+                        "params": {"limit": 5},
+                        "description": "Dados gerais de clientes"
+                    }
                 
         except Exception as e:
             return {
-                "table": "users",
+                "table": "clientes",
                 "operation": "select",
                 "params": {"limit": 5},
                 "description": f"Erro na análise: {str(e)}"
@@ -193,7 +235,7 @@ Responda APENAS com o JSON:
         try:
             start_time = datetime.now()
             
-            table = api_plan.get("table", "users")
+            table = api_plan.get("table", "clientes")
             params = api_plan.get("params", {})
             
             # Construir URL da API
@@ -209,7 +251,7 @@ Responda APENAS com o JSON:
             
             # Fazer requisição
             async with httpx.AsyncClient( ) as client:
-                response = await client.get(url, headers=self.headers)
+                response = await client.get(url, headers=self.headers, timeout=15.0)
                 
                 execution_time = (datetime.now() - start_time).total_seconds()
                 
@@ -240,7 +282,7 @@ Responda APENAS com o JSON:
             }
     
     async def process_data_request(self, request: SQLRequest) -> SQLResponse:
-        """Método principal do agente SQL - usa API do Supabase"""
+        """Método principal do agente SQL"""
         try:
             # 1. Validar pergunta
             is_safe, reason = self.validate_sql_security(request.user_question)
@@ -295,7 +337,7 @@ INTENÇÕES:
 
 Mensagem: "{user_message}"
 
-Palavras-chave para data_analysis: quantos, quanto, mostre, liste, dados, relatório, total, média, últimos, contar, somar, análise, usuários, vendas, produtos
+Palavras-chave para data_analysis: quantos, quanto, mostre, liste, dados, relatório, total, média, últimos, contar, somar, análise, clientes, vendas, pedidos, receita, margem, cluster
 
 Responda apenas: general_chat, data_analysis ou help
 """
@@ -344,37 +386,40 @@ Responda apenas: general_chat, data_analysis ou help
         try:
             if sql_response.success:
                 prompt = f"""
-Você é um assistente que converte dados da API em respostas naturais.
+Você é um assistente especialista em análise de dados de e-commerce.
 
 Pergunta do usuário: "{user_question}"
 Dados retornados: {json.dumps(sql_response.data[:5], ensure_ascii=False, indent=2)}
 Total de registros: {sql_response.row_count}
 Tempo de execução: {sql_response.execution_time}s
 
+Contexto: Os dados são de um e-commerce com informações de clientes, pedidos, receita e margem bruta.
+
 Crie uma resposta em português brasileiro que:
 - Seja natural e conversacional
-- Explique os dados de forma clara
+- Explique os dados de forma clara e insights relevantes
 - Use números específicos dos resultados
-- Seja concisa (máximo 200 palavras)
+- Mencione insights de negócio quando relevante
+- Seja concisa (máximo 250 palavras)
 - Use emojis ocasionalmente
 - Se houver muitos registros, destaque os principais
 
-Exemplo: "Encontrei {sql_response.row_count} registros. Os dados mostram que..."
+Exemplo: "Encontrei {sql_response.row_count} clientes. Os dados mostram que..."
 """
             else:
                 prompt = f"""
-Houve um problema ao consultar os dados.
+Houve um problema ao consultar os dados do e-commerce.
 
 Pergunta: "{user_question}"
 Erro: {sql_response.error}
 
-Explique de forma amigável que não foi possível obter os dados e sugira reformular a pergunta.
+Explique de forma amigável que não foi possível obter os dados e sugira reformular a pergunta ou verificar se os dados existem.
 """
             
             response = self.client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=250,
+                max_tokens=300,
                 temperature=0.7
             )
             
@@ -389,13 +434,13 @@ Explique de forma amigável que não foi possível obter os dados e sugira refor
             messages = [
                 {
                     "role": "system",
-                    "content": """Você é um assistente amigável e inteligente.
+                    "content": """Você é um assistente inteligente especializado em análise de dados de e-commerce.
 
 Características:
 - Responda em português brasileiro
 - Seja educado e prestativo
 - Use emojis ocasionalmente
-- Se perguntarem sobre dados, mencione que você pode consultar informações
+- Se perguntarem sobre dados, mencione que você pode analisar clientes, pedidos, receita e margem
 - Seja conciso (máximo 150 palavras)
 - Mantenha conversas naturais"""
                 }
@@ -437,11 +482,12 @@ Características:
                 return response, "sql_agent", True
             
             elif intent == IntentType.HELP:
-                response = """Olá! 😊 Sou seu assistente inteligente. Posso ajudar você com:
+                response = """Olá! 😊 Sou seu assistente de análise de dados de e-commerce. Posso ajudar você com:
 
-📊 **Análise de dados**: Faça perguntas sobre seus dados e eu consultarei via API
-💬 **Conversas gerais**: Posso conversar sobre diversos assuntos
-🔍 **Consultas específicas**: "Quantos usuários temos?", "Mostre os últimos registros", etc.
+📊 **Análise de clientes**: "Quantos clientes temos?", "Clientes com maior receita"
+💰 **Análise financeira**: "Qual a margem bruta média?", "Receita total"
+🛒 **Análise de pedidos**: "Últimos pedidos", "Pedidos por cliente"
+📈 **Análise por clusters**: "Dados por cluster", "Performance dos clusters"
 
 Como posso ajudar você hoje?"""
                 return response, "orchestrator", False
@@ -466,7 +512,8 @@ def home():
         "message": "🤖 Sistema de Agentes Orquestradores funcionando!",
         "architecture": "Orquestrador + Agente SQL via API",
         "agents": ["orchestrator", "sql_api_specialist"],
-        "database": "Supabase API",
+        "database": "Supabase com dados reais de e-commerce",
+        "tables": ["clientes", "clusters", "monthly_series", "pedidos"],
         "status": "online"
     }
 
@@ -550,6 +597,13 @@ async def test_sql_agent(request: SQLRequest):
     """Endpoint para testar agente SQL diretamente"""
     sql_agent = SQLAgent()
     return await sql_agent.process_data_request(request)
+
+@app.get("/debug/tables")
+async def debug_tables():
+    """Debug: testar acesso às tabelas reais"""
+    sql_agent = SQLAgent()
+    schema = await sql_agent.get_database_schema()
+    return {"schema": schema}
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
