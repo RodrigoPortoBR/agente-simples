@@ -1,34 +1,35 @@
 """
-Sistema de Agentes Orquestradores - ARQUITETURA CORRETA
-Agente Orquestrador como único ponto de contato + Agente SQL independente
+Sistema de Agentes Orquestradores - COMPATÍVEL COM LOVABLE
+Versão corrigida com CORS melhorado e múltiplos formatos de payload
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import openai
 import os
 import uvicorn
 import json
 import httpx
 import re
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 from datetime import datetime
 from enum import Enum
 
-app = FastAPI(title="Sistema de Agentes Orquestradores - Arquitetura Correta")
+app = FastAPI(title="Sistema de Agentes Orquestradores - Compatível com Lovable")
 
-# CORS
+# CORS MELHORADO - Mais permissivo para Lovable
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # Permite todos os domínios
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],  # Todos os métodos
+    allow_headers=["*"],  # Todos os headers
+    expose_headers=["*"]
 )
 
 # ================================
-# MODELOS DE DADOS
+# MODELOS DE DADOS FLEXÍVEIS
 # ================================
 
 class ConversationMessage(BaseModel):
@@ -37,12 +38,22 @@ class ConversationMessage(BaseModel):
     timestamp: str
 
 class WebhookPayload(BaseModel):
-    session_id: str
-    user_message: str
+    """Modelo flexível para aceitar diferentes formatos do Lovable"""
+    session_id: Optional[str] = Field(None, alias="sessionId")
+    user_message: Optional[str] = Field(None, alias="message")
     conversation_history: Optional[List[ConversationMessage]] = []
+    
+    # Campos alternativos que o Lovable pode enviar
+    message: Optional[str] = None
+    sessionId: Optional[str] = None
+    userId: Optional[str] = None
+    text: Optional[str] = None
+    content: Optional[str] = None
+    
+    class Config:
+        allow_population_by_field_name = True
 
 class AgentInstruction(BaseModel):
-    """Instruções que o Orquestrador envia para agentes especializados"""
     agent_type: str
     task_description: str
     user_question: str
@@ -50,7 +61,6 @@ class AgentInstruction(BaseModel):
     session_id: str
 
 class AgentResponse(BaseModel):
-    """Resposta estruturada que agentes especializados retornam para o Orquestrador"""
     success: bool
     agent_type: str
     data: Optional[Dict[str, Any]] = None
@@ -58,7 +68,6 @@ class AgentResponse(BaseModel):
     metadata: Optional[Dict[str, Any]] = None
 
 class OrchestratorResponse(BaseModel):
-    """Resposta final do Orquestrador para o usuário"""
     response: str
     session_id: str
     timestamp: str
@@ -71,13 +80,7 @@ class OrchestratorResponse(BaseModel):
 # ================================
 
 class SQLAgent:
-    """
-    Agente especialista em análise SQL - 2ª camada
-    - NÃO tem contato direto com usuário
-    - Recebe instruções do Orquestrador
-    - Retorna APENAS dados em JSON
-    - Sistema RAG integrado para análise contextual
-    """
+    """Agente especialista em análise SQL - 2ª camada"""
     
     def __init__(self):
         self.supabase_url = os.getenv("SUPABASE_URL")
@@ -119,13 +122,6 @@ class SQLAgent:
                     "description": "Séries temporais mensais para análise de tendências",
                     "key_fields": ["mes", "receita", "margem", "pedidos_count"]
                 }
-            },
-            "synonyms": {
-                "receita": ["faturamento", "vendas", "revenue", "billing"],
-                "margem": ["lucratividade", "profit", "margin", "lucro"],
-                "clientes": ["customers", "accounts", "usuarios", "compradores"],
-                "pedidos": ["orders", "compras", "transacoes", "vendas"],
-                "premium": ["top", "melhor", "principal", "vip", "elite"]
             }
         }
     
@@ -281,12 +277,7 @@ class SQLAgent:
             }
     
     async def process_instruction(self, instruction: AgentInstruction) -> AgentResponse:
-        """
-        Método principal do Agente SQL
-        - Recebe instrução do Orquestrador
-        - Executa análise de dados
-        - Retorna JSON estruturado (NÃO linguagem natural)
-        """
+        """Método principal do Agente SQL"""
         try:
             # 1. Analisar instrução
             analysis = self.analyze_data_request(instruction)
@@ -320,14 +311,7 @@ class SQLAgent:
 # ================================
 
 class OrchestratorAgent:
-    """
-    Agente Orquestrador Principal - ÚNICO ponto de contato com usuário
-    - Mantém memória conversacional
-    - Usa LLM para análise de contexto
-    - Decide quando usar ferramentas/agentes
-    - Coordena agentes especializados
-    - Converte respostas JSON em linguagem natural
-    """
+    """Agente Orquestrador Principal - ÚNICO ponto de contato com usuário"""
     
     def __init__(self):
         self.client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -354,12 +338,7 @@ class OrchestratorAgent:
             self.conversations[session_id] = self.conversations[session_id][-20:]
     
     async def analyze_user_intent_with_llm(self, user_message: str, history: List) -> Dict[str, Any]:
-        """
-        Usa LLM para analisar intenção do usuário e decidir ações
-        - Determina se precisa de dados
-        - Identifica que tipo de análise fazer
-        - Gera instruções para agentes especializados
-        """
+        """Usa LLM para analisar intenção do usuário e decidir ações"""
         try:
             # Preparar contexto da conversa
             conversation_context = ""
@@ -391,17 +370,17 @@ ANÁLISE NECESSÁRIA:
 3. Como você instruiria um agente SQL para obter esses dados?
 
 RESPONDA EM JSON:
-{
+{{
   "needs_data_analysis": true/false,
   "intent_type": "general_chat" | "data_analysis" | "help",
   "confidence": 0.0-1.0,
-  "sql_instruction": {
+  "sql_instruction": {{
     "task_description": "Descrição clara da análise necessária",
     "expected_data": "Que dados espera receber",
     "business_context": "Contexto de negócio relevante"
-  },
+  }},
   "reasoning": "Por que tomou essa decisão"
-}"""
+}}"""
 
             response = self.client.chat.completions.create(
                 model="gpt-4o-mini",
@@ -465,12 +444,7 @@ RESPONDA EM JSON:
             }
     
     async def handle_data_analysis(self, user_message: str, intent_analysis: Dict, session_id: str) -> tuple:
-        """
-        Coordena análise de dados:
-        1. Envia instrução para Agente SQL
-        2. Recebe dados em JSON
-        3. Converte para linguagem natural
-        """
+        """Coordena análise de dados"""
         try:
             # 1. Preparar instrução para Agente SQL
             sql_instruction = AgentInstruction(
@@ -500,12 +474,7 @@ RESPONDA EM JSON:
             return f"❌ Erro na análise de dados: {str(e)}", ["error"], ["Erro no processamento"]
     
     async def convert_json_to_natural_language(self, user_question: str, data: Any, metadata: Dict) -> str:
-        """
-        Converte dados JSON do Agente SQL em resposta natural
-        - Usa LLM para gerar insights
-        - Inclui contexto de negócio
-        - Fornece recomendações acionáveis
-        """
+        """Converte dados JSON do Agente SQL em resposta natural"""
         try:
             prompt = f"""Você é um analista sênior de e-commerce. Converta os dados JSON em uma resposta natural e insights acionáveis.
 
@@ -608,14 +577,7 @@ ESTILO:
             return "Olá! 😊 Sou seu assistente de análise de dados de e-commerce. Posso ajudar com análises de clientes, receita, margem bruta e muito mais. Como posso ajudar você hoje?"
     
     async def process_user_message(self, user_message: str, session_id: str) -> OrchestratorResponse:
-        """
-        MÉTODO PRINCIPAL DO ORQUESTRADOR
-        - Único ponto de entrada para mensagens do usuário
-        - Mantém memória conversacional
-        - Usa LLM para análise de contexto
-        - Coordena agentes especializados
-        - Retorna resposta final em linguagem natural
-        """
+        """MÉTODO PRINCIPAL DO ORQUESTRADOR"""
         try:
             # 1. Recuperar histórico da conversa
             history = self.get_conversation_history(session_id)
@@ -677,30 +639,16 @@ orchestrator = OrchestratorAgent()
 @app.get("/")
 def home():
     return {
-        "message": "🤖 Sistema de Agentes Orquestradores - ARQUITETURA CORRETA",
-        "version": "3.0 - Correct Architecture",
+        "message": "🤖 Sistema de Agentes Orquestradores - COMPATÍVEL COM LOVABLE",
+        "version": "3.1 - Lovable Compatible",
+        "status": "online",
+        "cors": "enabled",
+        "payload_formats": ["json", "form-data", "multiple_field_names"],
         "architecture": {
             "layer_1": "Orquestrador Principal (único ponto de contato)",
             "layer_2": "Agente SQL Especialista (independente)",
-            "communication": "JSON estruturado entre agentes",
-            "user_interface": "Apenas através do Orquestrador"
-        },
-        "flow": [
-            "1. Usuário → Orquestrador",
-            "2. Orquestrador → LLM (análise de intenção)",
-            "3. Se dados: Orquestrador → Agente SQL",
-            "4. Agente SQL → Supabase → JSON → Orquestrador",
-            "5. Orquestrador → LLM (conversão para linguagem natural)",
-            "6. Orquestrador → Usuário"
-        ],
-        "features": [
-            "Agente Orquestrador com LLM integrado",
-            "Memória conversacional persistente",
-            "Agente SQL independente",
-            "Comunicação JSON entre agentes",
-            "Sistema RAG para contexto de negócio"
-        ],
-        "status": "online"
+            "communication": "JSON estruturado entre agentes"
+        }
     }
 
 @app.get("/health")
@@ -710,107 +658,181 @@ def health():
         "architecture": "correct",
         "orchestrator": "active_with_llm",
         "sql_agent": "independent",
-        "communication": "json_structured",
+        "cors": "enabled",
+        "lovable_compatible": True,
         "openai_configured": bool(os.getenv("OPENAI_API_KEY")),
         "supabase_configured": bool(os.getenv("SUPABASE_URL")) and bool(os.getenv("SUPABASE_ANON_KEY")),
         "timestamp": datetime.now().isoformat()
     }
 
-@app.post("/webhook/lovable", response_model=OrchestratorResponse)
-async def lovable_webhook(payload: WebhookPayload):
+# ENDPOINT PRINCIPAL COM COMPATIBILIDADE MELHORADA
+@app.post("/webhook/lovable")
+async def lovable_webhook(request: Request):
     """
-    ENDPOINT PRINCIPAL - ARQUITETURA CORRETA
-    - Todas as mensagens passam pelo Orquestrador
-    - Orquestrador é o único ponto de contato
-    - Agentes especializados são coordenados pelo Orquestrador
+    ENDPOINT PRINCIPAL - COMPATÍVEL COM MÚLTIPLOS FORMATOS
+    - Aceita JSON, form-data, diferentes nomes de campos
+    - CORS melhorado
+    - Logs detalhados para debug
     """
     try:
-        if not os.getenv("OPENAI_API_KEY"):
-            return OrchestratorResponse(
-                response="⚠️ Sistema não configurado - OpenAI API key não encontrada",
-                session_id=payload.session_id,
-                timestamp=datetime.now().isoformat(),
-                success=False,
-                agents_used=["error"],
-                processing_steps=["Erro de configuração"]
-            )
+        # Log da requisição para debug
+        print(f"🔍 Headers recebidos: {dict(request.headers)}")
         
-        # PROCESSAR ATRAVÉS DO ORQUESTRADOR (único ponto de entrada)
-        return await orchestrator.process_user_message(payload.user_message, payload.session_id)
+        # Tentar diferentes formatos de payload
+        payload_data = {}
+        
+        try:
+            # Tentar JSON primeiro
+            if request.headers.get("content-type", "").startswith("application/json"):
+                raw_body = await request.body()
+                print(f"🔍 Raw JSON body: {raw_body.decode()}")
+                payload_data = json.loads(raw_body.decode())
+            else:
+                # Tentar form data
+                form_data = await request.form()
+                payload_data = dict(form_data)
+                print(f"🔍 Form data recebido: {payload_data}")
+        except Exception as e:
+            print(f"❌ Erro ao parsear payload: {e}")
+            return {
+                "response": "❌ Erro ao processar formato da mensagem",
+                "session_id": "error",
+                "timestamp": datetime.now().isoformat(),
+                "success": False,
+                "error": str(e)
+            }
+        
+        # Extrair dados com múltiplos formatos possíveis
+        user_message = (
+            payload_data.get("user_message") or 
+            payload_data.get("message") or 
+            payload_data.get("text") or 
+            payload_data.get("content") or
+            "Olá!"
+        )
+        
+        session_id = (
+            payload_data.get("session_id") or 
+            payload_data.get("sessionId") or 
+            payload_data.get("userId") or
+            f"session_{datetime.now().timestamp()}"
+        )
+        
+        print(f"🔍 Dados extraídos - Mensagem: '{user_message}', Sessão: '{session_id}'")
+        
+        # Validar configuração
+        if not os.getenv("OPENAI_API_KEY"):
+            return {
+                "response": "⚠️ Sistema não configurado - OpenAI API key não encontrada",
+                "session_id": session_id,
+                "timestamp": datetime.now().isoformat(),
+                "success": False,
+                "error": "OpenAI not configured"
+            }
+        
+        # PROCESSAR ATRAVÉS DO ORQUESTRADOR
+        print(f"🚀 Processando através do orquestrador...")
+        result = await orchestrator.process_user_message(user_message, session_id)
+        
+        print(f"✅ Resposta gerada: {result.response[:100]}...")
+        
+        # Retornar resposta compatível
+        return {
+            "response": result.response,
+            "session_id": result.session_id,
+            "timestamp": result.timestamp,
+            "success": result.success,
+            "agents_used": result.agents_used,
+            "processing_steps": result.processing_steps
+        }
         
     except Exception as e:
-        return OrchestratorResponse(
-            response=f"❌ Erro crítico no sistema: {str(e)}",
-            session_id=payload.session_id,
-            timestamp=datetime.now().isoformat(),
-            success=False,
-            agents_used=["error"],
-            processing_steps=["Erro crítico"]
-        )
+        print(f"❌ Erro crítico: {e}")
+        return {
+            "response": f"❌ Erro crítico no sistema: {str(e)}",
+            "session_id": "error",
+            "timestamp": datetime.now().isoformat(),
+            "success": False,
+            "error": str(e)
+        }
+
+# ENDPOINT ADICIONAL PARA TESTE DIRETO
+@app.post("/test")
+async def test_endpoint(data: dict):
+    """Endpoint simples para teste direto"""
+    try:
+        user_message = data.get("message", "Teste de conexão")
+        session_id = data.get("session_id", "test_session")
+        
+        result = await orchestrator.process_user_message(user_message, session_id)
+        
+        return {
+            "status": "success",
+            "result": result
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+# ENDPOINT OPTIONS PARA CORS
+@app.options("/webhook/lovable")
+async def options_webhook():
+    """Endpoint OPTIONS para CORS preflight"""
+    return {"status": "ok"}
 
 # ================================
 # ENDPOINTS DE DEBUG
 # ================================
 
-@app.get("/debug/architecture")
-async def debug_architecture():
-    """Debug: verificar se a arquitetura está correta"""
+@app.get("/debug/cors")
+async def debug_cors():
+    """Debug: verificar configuração CORS"""
     return {
-        "architecture_status": "CORRECT",
-        "design_principles": {
-            "single_entry_point": "✅ Orquestrador é único ponto de contato",
-            "llm_decision_making": "✅ LLM usado para análise de intenção",
-            "agent_independence": "✅ Agente SQL é independente",
-            "json_communication": "✅ Comunicação estruturada entre agentes",
-            "memory_management": "✅ Memória conversacional no Orquestrador"
-        },
-        "flow_validation": {
-            "user_to_orchestrator": "✅ Usuário fala apenas com Orquestrador",
-            "orchestrator_to_llm": "✅ Orquestrador usa LLM para decisões",
-            "orchestrator_to_sql": "✅ Orquestrador instrui Agente SQL",
-            "sql_to_json": "✅ Agente SQL retorna JSON estruturado",
-            "json_to_natural": "✅ Orquestrador converte JSON para linguagem natural"
-        },
-        "agents": {
-            "orchestrator": {
-                "role": "Único ponto de contato, coordenação, memória",
-                "llm_integrated": True,
-                "memory_enabled": True
-            },
-            "sql_agent": {
-                "role": "Análise de dados independente",
-                "user_contact": False,
-                "returns": "JSON estruturado"
-            }
+        "cors_status": "enabled",
+        "allowed_origins": ["*"],
+        "allowed_methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allowed_headers": ["*"],
+        "credentials": True
+    }
+
+@app.post("/debug/payload")
+async def debug_payload(request: Request):
+    """Debug: verificar formato do payload recebido"""
+    try:
+        headers = dict(request.headers)
+        
+        # Tentar diferentes formatos
+        try:
+            raw_body = await request.body()
+            body_text = raw_body.decode()
+        except:
+            body_text = "Não foi possível ler o body"
+        
+        try:
+            if request.headers.get("content-type", "").startswith("application/json"):
+                json_data = json.loads(body_text)
+            else:
+                json_data = "Não é JSON"
+        except:
+            json_data = "Erro ao parsear JSON"
+        
+        try:
+            form_data = await request.form()
+            form_dict = dict(form_data)
+        except:
+            form_dict = "Não é form data"
+        
+        return {
+            "headers": headers,
+            "raw_body": body_text,
+            "json_parsed": json_data,
+            "form_parsed": form_dict,
+            "content_type": request.headers.get("content-type", "não especificado")
         }
-    }
-
-@app.post("/debug/test-flow")
-async def debug_test_flow(test_message: dict):
-    """Debug: testar fluxo completo com mensagem específica"""
-    user_message = test_message.get("message", "Quantos clientes premium temos?")
-    session_id = test_message.get("session_id", "debug_session")
-    
-    # Testar fluxo completo
-    result = await orchestrator.process_user_message(user_message, session_id)
-    
-    return {
-        "test_input": user_message,
-        "architecture_flow": "Usuário → Orquestrador → LLM → Agente SQL → JSON → LLM → Resposta Natural",
-        "result": result,
-        "flow_validation": "✅ Arquitetura correta implementada"
-    }
-
-@app.get("/debug/memory/{session_id}")
-async def debug_memory(session_id: str):
-    """Debug: verificar memória conversacional"""
-    history = orchestrator.get_conversation_history(session_id)
-    return {
-        "session_id": session_id,
-        "conversation_length": len(history),
-        "memory_status": "✅ Ativa no Orquestrador",
-        "recent_messages": history[-5:] if history else []
-    }
+    except Exception as e:
+        return {"error": str(e)}
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
