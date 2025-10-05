@@ -1,6 +1,6 @@
 """
-Sistema de Agentes Orquestradores - COMPATÍVEL COM LOVABLE
-Versão corrigida com CORS melhorado e múltiplos formatos de payload
+Sistema de Agentes Orquestradores - SQL CORRIGIDO
+Versão com lógica de consulta SQL melhorada
 """
 
 from fastapi import FastAPI, HTTPException, Request
@@ -16,20 +16,20 @@ from typing import List, Optional, Dict, Any, Union
 from datetime import datetime
 from enum import Enum
 
-app = FastAPI(title="Sistema de Agentes Orquestradores - Compatível com Lovable")
+app = FastAPI(title="Sistema de Agentes Orquestradores - SQL Corrigido")
 
-# CORS MELHORADO - Mais permissivo para Lovable
+# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Permite todos os domínios
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],  # Todos os métodos
-    allow_headers=["*"],  # Todos os headers
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
     expose_headers=["*"]
 )
 
 # ================================
-# MODELOS DE DADOS FLEXÍVEIS
+# MODELOS DE DADOS
 # ================================
 
 class ConversationMessage(BaseModel):
@@ -38,12 +38,10 @@ class ConversationMessage(BaseModel):
     timestamp: str
 
 class WebhookPayload(BaseModel):
-    """Modelo flexível para aceitar diferentes formatos do Lovable"""
     session_id: Optional[str] = Field(None, alias="sessionId")
     user_message: Optional[str] = Field(None, alias="message")
     conversation_history: Optional[List[ConversationMessage]] = []
     
-    # Campos alternativos que o Lovable pode enviar
     message: Optional[str] = None
     sessionId: Optional[str] = None
     userId: Optional[str] = None
@@ -76,11 +74,11 @@ class OrchestratorResponse(BaseModel):
     processing_steps: List[str]
 
 # ================================
-# AGENTE SQL INDEPENDENTE (2ª CAMADA)
+# AGENTE SQL CORRIGIDO
 # ================================
 
 class SQLAgent:
-    """Agente especialista em análise SQL - 2ª camada"""
+    """Agente SQL com lógica de consulta corrigida"""
     
     def __init__(self):
         self.supabase_url = os.getenv("SUPABASE_URL")
@@ -91,156 +89,199 @@ class SQLAgent:
             "Content-Type": "application/json"
         }
         
-        # Base de conhecimento RAG
-        self.business_context = {
-            "tables": {
-                "clientes": {
-                    "description": "Dados principais dos clientes do e-commerce",
-                    "key_fields": ["id", "nome", "email", "receita_12m", "gm_12m", "cluster_id"],
-                    "metrics": {
-                        "receita_12m": "Receita dos últimos 12 meses em reais",
-                        "gm_12m": "Margem bruta dos últimos 12 meses em percentual",
-                        "cluster_id": "Segmentação: 1=Premium, 2=Alto valor, 3=Médio, 4=Baixo, 5=Novo"
-                    }
-                },
-                "clusters": {
-                    "description": "Segmentação estratégica de clientes",
-                    "key_fields": ["id", "nome", "descricao", "avg_receita", "avg_margem", "total_clientes"],
-                    "business_logic": {
-                        "1": "Premium - Alta receita (>R$100k) e margem (>30%)",
-                        "2": "Alto Valor - Boa receita (R$50k-100k)",
-                        "3": "Médios - Receita moderada (R$20k-50k)",
-                        "4": "Baixo Valor - Receita baixa (<R$20k)",
-                        "5": "Novos - Recém adquiridos"
-                    }
-                },
-                "pedidos": {
-                    "description": "Histórico completo de pedidos e transações",
-                    "key_fields": ["id", "cliente_id", "valor", "data_pedido", "status"]
-                },
-                "monthly_series": {
-                    "description": "Séries temporais mensais para análise de tendências",
-                    "key_fields": ["mes", "receita", "margem", "pedidos_count"]
-                }
+        # Mapeamento correto de consultas
+        self.query_patterns = {
+            # Receita por cluster
+            "receita_cluster": {
+                "keywords": ["receita", "faturamento", "vendas", "cluster"],
+                "table": "clientes",
+                "operation": "sum",
+                "field": "receita_12m",
+                "filter_field": "cluster_id"
+            },
+            # Contagem por cluster
+            "count_cluster": {
+                "keywords": ["quantos", "numero", "count", "cluster"],
+                "table": "clientes", 
+                "operation": "count",
+                "field": "*",
+                "filter_field": "cluster_id"
+            },
+            # Margem por cluster
+            "margem_cluster": {
+                "keywords": ["margem", "cluster"],
+                "table": "clientes",
+                "operation": "avg",
+                "field": "gm_12m",
+                "filter_field": "cluster_id"
+            },
+            # Top clientes
+            "top_clientes": {
+                "keywords": ["top", "melhor", "maior", "cliente"],
+                "table": "clientes",
+                "operation": "select",
+                "field": "nome,receita_12m,gm_12m,cluster_id",
+                "order": "receita_12m.desc"
+            },
+            # Dados de cluster (tabela clusters)
+            "info_clusters": {
+                "keywords": ["cluster", "segmento", "grupo"],
+                "table": "clusters",
+                "operation": "select",
+                "field": "*"
+            },
+            # Pedidos
+            "pedidos": {
+                "keywords": ["pedido", "compra", "order"],
+                "table": "pedidos",
+                "operation": "select",
+                "field": "*"
+            },
+            # Séries temporais
+            "temporal": {
+                "keywords": ["mes", "mensal", "crescimento", "tempo"],
+                "table": "monthly_series",
+                "operation": "select",
+                "field": "*",
+                "order": "mes.desc"
             }
         }
     
-    def analyze_data_request(self, instruction: AgentInstruction) -> Dict[str, Any]:
-        """Analisa a instrução do Orquestrador e determina que dados buscar"""
+    def analyze_data_request_improved(self, instruction: AgentInstruction) -> Dict[str, Any]:
+        """Análise melhorada de consultas com lógica corrigida"""
         task_description = instruction.task_description.lower()
         user_question = instruction.user_question.lower()
+        combined_text = f"{task_description} {user_question}"
         
-        # Detectar tabela
-        table = "clientes"  # Default
-        if any(word in task_description for word in ["pedido", "order", "compra"]):
-            table = "pedidos"
-        elif any(word in task_description for word in ["cluster", "segmento"]):
-            table = "clusters"
-        elif any(word in task_description for word in ["mes", "mensal", "temporal", "crescimento"]):
-            table = "monthly_series"
+        print(f"🔍 Analisando: '{combined_text}'")
         
-        # Detectar operação
-        operation = "select"
-        select_field = "*"
+        # Detectar cluster específico
+        cluster_id = None
+        cluster_patterns = {
+            "1": ["cluster 1", "premium", "top", "melhor"],
+            "2": ["cluster 2", "alto valor", "high value"],
+            "3": ["cluster 3", "medio", "médio"],
+            "4": ["cluster 4", "baixo", "low"],
+            "5": ["cluster 5", "novo", "new"]
+        }
         
-        if any(word in task_description for word in ["quantos", "count", "numero"]):
-            operation = "count"
-            select_field = "count()"
-        elif any(word in task_description for word in ["soma", "total", "sum"]):
-            operation = "sum"
-            if "receita" in task_description:
-                select_field = "sum(receita_12m)"
-        elif any(word in task_description for word in ["media", "average", "avg"]):
-            operation = "avg"
-            if "margem" in task_description:
-                select_field = "avg(gm_12m)"
-            else:
-                select_field = "avg(receita_12m)"
-        else:
-            # Selecionar campos relevantes por tabela
-            if table == "clientes":
-                select_field = "nome,receita_12m,gm_12m,cluster_id"
-            elif table == "pedidos":
-                select_field = "cliente_id,valor,data_pedido,status"
-            elif table == "clusters":
-                select_field = "nome,total_clientes,avg_receita,avg_margem"
-            elif table == "monthly_series":
-                select_field = "mes,receita,margem,pedidos_count"
+        for cluster, patterns in cluster_patterns.items():
+            if any(pattern in combined_text for pattern in patterns):
+                cluster_id = cluster
+                break
         
-        # Detectar filtros
-        filters = {}
-        if any(word in task_description for word in ["premium", "top", "melhor"]):
-            if table == "clientes":
-                filters["cluster_id"] = "eq.1"
-        elif any(word in task_description for word in ["baixa margem", "risco"]):
-            if table == "clientes":
-                filters["gm_12m"] = "lt.20"
-        elif any(word in task_description for word in ["alto valor"]):
-            if table == "clientes":
-                filters["cluster_id"] = "eq.2"
+        # Detectar tipo de consulta
+        query_type = None
+        for pattern_name, pattern_config in self.query_patterns.items():
+            keywords = pattern_config["keywords"]
+            if all(keyword in combined_text for keyword in keywords[:2]):  # Pelo menos 2 keywords
+                query_type = pattern_name
+                break
+            elif any(keyword in combined_text for keyword in keywords):
+                if not query_type:  # Primeira correspondência parcial
+                    query_type = pattern_name
         
-        # Detectar ordenação
-        order = None
-        if any(word in task_description for word in ["top", "maior", "melhor"]):
-            if table == "clientes":
-                order = "receita_12m.desc"
-            elif table == "pedidos":
-                order = "valor.desc"
-            elif table == "clusters":
-                order = "avg_receita.desc"
-        elif any(word in task_description for word in ["recente", "ultimo"]):
-            if table == "pedidos":
-                order = "data_pedido.desc"
-            elif table == "monthly_series":
-                order = "mes.desc"
+        # Fallback para consultas de receita/cluster
+        if not query_type and cluster_id and any(word in combined_text for word in ["receita", "faturamento", "vendas"]):
+            query_type = "receita_cluster"
+        elif not query_type and cluster_id and any(word in combined_text for word in ["quantos", "count"]):
+            query_type = "count_cluster"
+        elif not query_type and cluster_id:
+            query_type = "top_clientes"
+        
+        # Configuração padrão se não detectar
+        if not query_type:
+            query_type = "top_clientes"
+        
+        config = self.query_patterns[query_type]
         
         # Detectar limite
         limit = None
-        numbers = re.findall(r'\d+', task_description)
-        if numbers and any(word in task_description for word in ["top", "primeiro", "ultimos"]):
+        numbers = re.findall(r'\d+', combined_text)
+        if numbers and any(word in combined_text for word in ["top", "primeiro", "ultimos"]):
             limit = int(numbers[0])
-        elif operation == "select":
-            limit = 10  # Default para listagens
+        elif config["operation"] == "select":
+            limit = 10  # Default
         
-        return {
-            "table": table,
-            "operation": operation,
-            "params": {
-                "select": select_field,
-                "limit": limit,
-                "order": order,
-                "filters": filters
-            }
+        # Construir parâmetros
+        params = {
+            "select": config["field"],
+            "limit": limit,
+            "order": config.get("order"),
+            "filters": {}
         }
+        
+        # Adicionar filtro de cluster se detectado
+        if cluster_id and config.get("filter_field"):
+            params["filters"][config["filter_field"]] = f"eq.{cluster_id}"
+        
+        # Ajustar para operações de agregação
+        if config["operation"] in ["sum", "count", "avg"]:
+            if config["operation"] == "sum":
+                params["select"] = f"{config['field']}.sum()"
+            elif config["operation"] == "count":
+                params["select"] = "*"  # Para count, usamos select=* e contamos no código
+            elif config["operation"] == "avg":
+                params["select"] = f"{config['field']}.avg()"
+        
+        result = {
+            "table": config["table"],
+            "operation": config["operation"],
+            "query_type": query_type,
+            "cluster_id": cluster_id,
+            "params": params
+        }
+        
+        print(f"✅ Análise resultado: {result}")
+        return result
     
-    async def execute_query(self, analysis: Dict[str, Any]) -> Dict[str, Any]:
-        """Executa a consulta no Supabase e retorna dados estruturados"""
+    async def execute_query_improved(self, analysis: Dict[str, Any]) -> Dict[str, Any]:
+        """Execução melhorada de consultas"""
         try:
             start_time = datetime.now()
             
             table = analysis["table"]
             params = analysis["params"]
+            operation = analysis["operation"]
             
-            # Construir URL
+            # Construir URL base
             url = f"{self.supabase_url}/rest/v1/{table}"
             query_params = []
             
-            # Adicionar parâmetros
-            if params.get("select"):
-                query_params.append(f"select={params['select']}")
-            
-            if params.get("limit"):
-                query_params.append(f"limit={params['limit']}")
-            
-            if params.get("order"):
-                query_params.append(f"order={params['order']}")
+            # Para operações de agregação, usar sintaxe correta do PostgREST
+            if operation == "sum":
+                # Para soma, precisamos usar select com função de agregação
+                field_to_sum = params["select"].replace(".sum()", "")
+                query_params.append(f"select={field_to_sum}.sum()")
+            elif operation == "count":
+                # Para contagem, usar select=count
+                query_params.append("select=count")
+            elif operation == "avg":
+                # Para média, usar função de agregação
+                field_to_avg = params["select"].replace(".avg()", "")
+                query_params.append(f"select={field_to_avg}.avg()")
+            else:
+                # Select normal
+                if params.get("select"):
+                    query_params.append(f"select={params['select']}")
             
             # Adicionar filtros
             for field, filter_value in params.get("filters", {}).items():
                 query_params.append(f"{field}={filter_value}")
             
+            # Adicionar ordenação (apenas para select normal)
+            if operation == "select" and params.get("order"):
+                query_params.append(f"order={params['order']}")
+            
+            # Adicionar limite (apenas para select normal)
+            if operation == "select" and params.get("limit"):
+                query_params.append(f"limit={params['limit']}")
+            
+            # Construir URL final
             if query_params:
                 url += "?" + "&".join(query_params)
+            
+            print(f"🔗 URL construída: {url}")
             
             # Executar requisição
             async with httpx.AsyncClient() as client:
@@ -248,28 +289,48 @@ class SQLAgent:
                 
                 execution_time = (datetime.now() - start_time).total_seconds()
                 
+                print(f"📊 Status: {response.status_code}")
+                print(f"📊 Resposta: {response.text[:200]}...")
+                
                 if response.status_code == 200:
                     data = response.json()
                     
+                    # Processar resultado baseado na operação
+                    if operation == "count":
+                        # Para count, o resultado vem como lista, precisamos contar
+                        if isinstance(data, list):
+                            processed_data = [{"count": len(data)}]
+                        else:
+                            processed_data = data
+                    else:
+                        processed_data = data
+                    
                     return {
                         "success": True,
-                        "data": data,
-                        "row_count": len(data) if isinstance(data, list) else 1,
+                        "data": processed_data,
+                        "row_count": len(processed_data) if isinstance(processed_data, list) else 1,
                         "execution_time": execution_time,
                         "query_info": {
                             "table": table,
-                            "operation": analysis["operation"],
-                            "url": url
+                            "operation": operation,
+                            "url": url,
+                            "cluster_id": analysis.get("cluster_id")
                         }
                     }
                 else:
                     return {
                         "success": False,
                         "error": f"API Error {response.status_code}: {response.text}",
-                        "data": None
+                        "data": None,
+                        "query_info": {
+                            "url": url,
+                            "table": table,
+                            "operation": operation
+                        }
                     }
                     
         except Exception as e:
+            print(f"❌ Erro na execução: {e}")
             return {
                 "success": False,
                 "error": str(e),
@@ -277,15 +338,17 @@ class SQLAgent:
             }
     
     async def process_instruction(self, instruction: AgentInstruction) -> AgentResponse:
-        """Método principal do Agente SQL"""
+        """Método principal do Agente SQL corrigido"""
         try:
-            # 1. Analisar instrução
-            analysis = self.analyze_data_request(instruction)
+            print(f"🚀 SQL Agent processando: {instruction.user_question}")
             
-            # 2. Executar consulta
-            query_result = await self.execute_query(analysis)
+            # 1. Analisar instrução com lógica melhorada
+            analysis = self.analyze_data_request_improved(instruction)
             
-            # 3. Retornar resposta estruturada para o Orquestrador
+            # 2. Executar consulta com sintaxe corrigida
+            query_result = await self.execute_query_improved(analysis)
+            
+            # 3. Retornar resposta estruturada
             return AgentResponse(
                 success=query_result["success"],
                 agent_type="sql_agent",
@@ -300,6 +363,7 @@ class SQLAgent:
             )
             
         except Exception as e:
+            print(f"❌ Erro no SQL Agent: {e}")
             return AgentResponse(
                 success=False,
                 agent_type="sql_agent",
@@ -307,23 +371,21 @@ class SQLAgent:
             )
 
 # ================================
-# AGENTE ORQUESTRADOR PRINCIPAL (1ª CAMADA)
+# AGENTE ORQUESTRADOR (MANTIDO IGUAL)
 # ================================
 
 class OrchestratorAgent:
-    """Agente Orquestrador Principal - ÚNICO ponto de contato com usuário"""
+    """Agente Orquestrador Principal"""
     
     def __init__(self):
         self.client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self.sql_agent = SQLAgent()
-        self.conversations = {}  # Memória conversacional
+        self.conversations = {}
     
     def get_conversation_history(self, session_id: str) -> List[Dict[str, str]]:
-        """Recupera histórico da conversa"""
         return self.conversations.get(session_id, [])
     
     def add_to_conversation(self, session_id: str, role: str, content: str):
-        """Adiciona mensagem ao histórico"""
         if session_id not in self.conversations:
             self.conversations[session_id] = []
         
@@ -333,51 +395,46 @@ class OrchestratorAgent:
             "timestamp": datetime.now().isoformat()
         })
         
-        # Limitar histórico
         if len(self.conversations[session_id]) > 20:
             self.conversations[session_id] = self.conversations[session_id][-20:]
     
     async def analyze_user_intent_with_llm(self, user_message: str, history: List) -> Dict[str, Any]:
-        """Usa LLM para analisar intenção do usuário e decidir ações"""
+        """Análise de intenção com LLM"""
         try:
-            # Preparar contexto da conversa
             conversation_context = ""
             if history:
-                recent_messages = history[-4:]  # Últimas 4 mensagens
+                recent_messages = history[-4:]
                 for msg in recent_messages:
                     conversation_context += f"{msg['role']}: {msg['content']}\n"
             
-            prompt = f"""Você é um Agente Orquestrador inteligente especializado em análise de dados de e-commerce.
+            prompt = f"""Você é um Agente Orquestrador especializado em análise de dados de e-commerce.
 
 CONTEXTO DA CONVERSA:
 {conversation_context}
 
-NOVA MENSAGEM DO USUÁRIO: "{user_message}"
-
-SUAS CAPACIDADES:
-1. Conversa geral (cumprimentos, explicações, ajuda)
-2. Análise de dados via Agente SQL especializado
+NOVA MENSAGEM: "{user_message}"
 
 DADOS DISPONÍVEIS:
-- Tabela "clientes": receita, margem bruta, clusters (1=Premium, 2=Alto valor, etc.)
-- Tabela "pedidos": histórico de compras, valores, datas
-- Tabela "clusters": análise por segmentos de clientes
-- Tabela "monthly_series": tendências temporais, crescimento
+- Tabela "clientes": receita_12m, gm_12m (margem), cluster_id (1=Premium, 2=Alto, 3=Médio, 4=Baixo, 5=Novo)
+- Tabela "clusters": informações dos segmentos
+- Tabela "pedidos": histórico de compras
+- Tabela "monthly_series": dados mensais
 
-ANÁLISE NECESSÁRIA:
-1. A mensagem é sobre DADOS DE NEGÓCIO (receita, clientes, vendas, análises)?
-2. Se SIM, que tipo de análise o usuário quer?
-3. Como você instruiria um agente SQL para obter esses dados?
+EXEMPLOS DE ANÁLISE:
+- "receita do cluster 1" → DADOS (somar receita_12m dos clientes cluster_id=1)
+- "quantos clientes premium" → DADOS (contar clientes cluster_id=1)
+- "olá" → CHAT GERAL
+- "como funciona" → CHAT GERAL
 
 RESPONDA EM JSON:
 {{
   "needs_data_analysis": true/false,
-  "intent_type": "general_chat" | "data_analysis" | "help",
+  "intent_type": "general_chat" | "data_analysis",
   "confidence": 0.0-1.0,
   "sql_instruction": {{
-    "task_description": "Descrição clara da análise necessária",
-    "expected_data": "Que dados espera receber",
-    "business_context": "Contexto de negócio relevante"
+    "task_description": "Descrição específica da análise",
+    "expected_data": "Que dados espera",
+    "business_context": "Contexto relevante"
   }},
   "reasoning": "Por que tomou essa decisão"
 }}"""
@@ -389,36 +446,30 @@ RESPONDA EM JSON:
                 temperature=0.3
             )
             
-            # Parse da resposta JSON
             response_text = response.choices[0].message.content.strip()
             
-            # Tentar extrair JSON da resposta
             try:
-                # Procurar por JSON na resposta
                 json_start = response_text.find('{')
                 json_end = response_text.rfind('}') + 1
                 if json_start >= 0 and json_end > json_start:
                     json_str = response_text[json_start:json_end]
                     return json.loads(json_str)
                 else:
-                    raise ValueError("JSON não encontrado na resposta")
+                    raise ValueError("JSON não encontrado")
             except:
-                # Fallback: análise baseada em regras
                 return self.fallback_intent_analysis(user_message)
                 
         except Exception as e:
-            # Fallback em caso de erro
             return self.fallback_intent_analysis(user_message)
     
     def fallback_intent_analysis(self, user_message: str) -> Dict[str, Any]:
-        """Análise de intenção de fallback baseada em regras"""
+        """Fallback para análise de intenção"""
         message_lower = user_message.lower()
         
-        # Palavras-chave para análise de dados
         data_keywords = [
             "quantos", "quanto", "total", "soma", "média", "margem", "receita", "vendas",
             "mostre", "liste", "dados", "relatório", "análise", "performance", "crescimento",
-            "clientes", "pedidos", "clusters", "top", "ranking", "último", "recente"
+            "clientes", "pedidos", "clusters", "top", "ranking", "último", "recente", "cluster"
         ]
         
         needs_data = any(keyword in message_lower for keyword in data_keywords)
@@ -431,22 +482,21 @@ RESPONDA EM JSON:
                 "sql_instruction": {
                     "task_description": f"Analisar dados baseado na pergunta: {user_message}",
                     "expected_data": "Dados relevantes da consulta",
-                    "business_context": "Análise de negócio solicitada pelo usuário"
+                    "business_context": "Análise de negócio solicitada"
                 },
-                "reasoning": "Detectadas palavras-chave relacionadas a dados de negócio"
+                "reasoning": "Detectadas palavras-chave de dados"
             }
         else:
             return {
                 "needs_data_analysis": False,
                 "intent_type": "general_chat",
                 "confidence": 0.8,
-                "reasoning": "Conversa geral ou cumprimentos"
+                "reasoning": "Conversa geral"
             }
     
     async def handle_data_analysis(self, user_message: str, intent_analysis: Dict, session_id: str) -> tuple:
         """Coordena análise de dados"""
         try:
-            # 1. Preparar instrução para Agente SQL
             sql_instruction = AgentInstruction(
                 agent_type="sql_agent",
                 task_description=intent_analysis["sql_instruction"]["task_description"],
@@ -458,111 +508,84 @@ RESPONDA EM JSON:
                 session_id=session_id
             )
             
-            # 2. Enviar para Agente SQL e receber JSON
             sql_response = await self.sql_agent.process_instruction(sql_instruction)
             
-            # 3. Converter JSON para linguagem natural usando LLM
             if sql_response.success:
                 natural_response = await self.convert_json_to_natural_language(
                     user_message, sql_response.data, sql_response.metadata
                 )
-                return natural_response, ["sql_agent"], ["Análise de intenção com LLM", "Consulta SQL executada", "Conversão para linguagem natural"]
+                return natural_response, ["sql_agent"], ["Análise LLM", "Consulta SQL", "Conversão natural"]
             else:
-                return f"❌ Não foi possível obter os dados: {sql_response.error}", ["sql_agent"], ["Análise de intenção com LLM", "Erro na consulta SQL"]
+                return f"❌ Erro na consulta: {sql_response.error}", ["sql_agent"], ["Análise LLM", "Erro SQL"]
                 
         except Exception as e:
-            return f"❌ Erro na análise de dados: {str(e)}", ["error"], ["Erro no processamento"]
+            return f"❌ Erro na análise: {str(e)}", ["error"], ["Erro no processamento"]
     
     async def convert_json_to_natural_language(self, user_question: str, data: Any, metadata: Dict) -> str:
-        """Converte dados JSON do Agente SQL em resposta natural"""
+        """Converte JSON em resposta natural"""
         try:
-            prompt = f"""Você é um analista sênior de e-commerce. Converta os dados JSON em uma resposta natural e insights acionáveis.
+            prompt = f"""Converta os dados em resposta natural e insights de negócio.
 
-PERGUNTA ORIGINAL: "{user_question}"
+PERGUNTA: "{user_question}"
 
-DADOS RETORNADOS:
+DADOS:
 {json.dumps(data, indent=2, ensure_ascii=False)}
 
 METADADOS:
-- Registros encontrados: {metadata.get('row_count', 0)}
-- Tempo de execução: {metadata.get('execution_time', 0):.2f}s
-- Tabela consultada: {metadata.get('query_info', {}).get('table', 'N/A')}
+- Registros: {metadata.get('row_count', 0)}
+- Tempo: {metadata.get('execution_time', 0):.2f}s
+- Tabela: {metadata.get('query_info', {}).get('table', 'N/A')}
+- Cluster: {metadata.get('query_info', {}).get('cluster_id', 'N/A')}
 
-CONTEXTO DE NEGÓCIO:
-• Margem bruta saudável: 20-30% (boa), 30%+ (excelente)
-• Cliente premium: receita > R$ 100.000 (cluster 1)
-• Clusters: 1=Premium, 2=Alto valor, 3=Médio, 4=Baixo, 5=Novo
-• Benchmark do setor: crescimento 15%+ anual
+CONTEXTO:
+• Cluster 1 = Premium (receita >R$100k)
+• Cluster 2 = Alto valor (R$50k-100k)  
+• Cluster 3 = Médio (R$20k-50k)
+• Cluster 4 = Baixo (<R$20k)
+• Cluster 5 = Novos clientes
+• Margem saudável: 20-30%
 
-FORNEÇA UMA RESPOSTA COMPLETA COM:
-1. 📊 Interpretação clara dos números
-2. 💡 Insights de negócio (o que isso significa?)
-3. 🎯 Oportunidades identificadas
-4. ⚠️ Alertas ou riscos (se houver)
-5. 📈 Recomendações acionáveis
+FORNEÇA:
+1. 📊 Interpretação dos números
+2. 💡 Insights de negócio
+3. 🎯 Oportunidades
+4. 📈 Recomendações
 
-Use linguagem natural, seja específico com os números, máximo 300 palavras, inclua emojis estrategicamente."""
+Máximo 250 palavras, use emojis estrategicamente."""
 
             response = self.client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=500,
+                max_tokens=400,
                 temperature=0.7
             )
             
             return response.choices[0].message.content
             
         except Exception as e:
-            # Fallback: resposta simples baseada nos dados
             if isinstance(data, list) and len(data) > 0:
-                return f"📊 Encontrei {len(data)} registros. Dados: {str(data[:3])}..." if len(data) > 3 else f"📊 Dados encontrados: {str(data)}"
-            elif isinstance(data, dict):
-                return f"📊 Resultado da análise: {str(data)}"
+                return f"📊 Encontrei {len(data)} registros. Dados: {str(data[:2])}..."
             else:
-                return f"📊 Análise concluída. Dados processados com sucesso."
+                return f"📊 Análise concluída: {str(data)}"
     
     async def handle_general_chat(self, user_message: str, history: List) -> str:
-        """Responde conversas gerais mantendo contexto"""
+        """Conversa geral"""
         try:
             messages = [
                 {
                     "role": "system",
-                    "content": """Você é um assistente inteligente especializado em análise de dados de e-commerce.
+                    "content": """Você é um assistente de análise de dados de e-commerce.
 
-PERSONALIDADE:
-- Profissional mas amigável
-- Especialista em dados de negócio
-- Prestativo e educativo
-- Conciso e objetivo
-
-CAPACIDADES:
-- Análise de clientes, receita e margem bruta
-- Segmentação por clusters
-- Análise temporal e tendências
-- Histórico de pedidos e transações
-- Insights de negócio acionáveis
-
-ESTILO:
-- Use português brasileiro
-- Seja educado e prestativo
-- Use emojis ocasionalmente (máximo 2-3)
-- Máximo 150 palavras
-- Mencione suas capacidades quando relevante
-- Incentive perguntas sobre dados"""
+PERSONALIDADE: Profissional, amigável, especialista em dados
+CAPACIDADES: Análise de clientes, receita, margem, clusters, pedidos
+ESTILO: Português brasileiro, educado, máximo 150 palavras, emojis ocasionais"""
                 }
             ]
             
-            # Adicionar histórico recente
             for msg in history[-4:]:
-                messages.append({
-                    "role": msg["role"],
-                    "content": msg["content"]
-                })
+                messages.append({"role": msg["role"], "content": msg["content"]})
             
-            messages.append({
-                "role": "user",
-                "content": user_message
-            })
+            messages.append({"role": "user", "content": user_message})
             
             response = self.client.chat.completions.create(
                 model="gpt-4o-mini",
@@ -574,36 +597,27 @@ ESTILO:
             return response.choices[0].message.content
             
         except Exception as e:
-            return "Olá! 😊 Sou seu assistente de análise de dados de e-commerce. Posso ajudar com análises de clientes, receita, margem bruta e muito mais. Como posso ajudar você hoje?"
+            return "Olá! 😊 Sou seu assistente de análise de dados. Posso ajudar com análises de clientes, receita, margem e clusters. Como posso ajudar?"
     
     async def process_user_message(self, user_message: str, session_id: str) -> OrchestratorResponse:
-        """MÉTODO PRINCIPAL DO ORQUESTRADOR"""
+        """Método principal do Orquestrador"""
         try:
-            # 1. Recuperar histórico da conversa
             history = self.get_conversation_history(session_id)
-            
-            # 2. Adicionar mensagem do usuário ao histórico
             self.add_to_conversation(session_id, "user", user_message)
             
-            # 3. Analisar intenção usando LLM
             intent_analysis = await self.analyze_user_intent_with_llm(user_message, history)
             
-            # 4. Decidir ação baseada na análise
             if intent_analysis.get("needs_data_analysis", False):
-                # Coordenar análise de dados
                 response_text, agents_used, processing_steps = await self.handle_data_analysis(
                     user_message, intent_analysis, session_id
                 )
             else:
-                # Conversa geral
                 response_text = await self.handle_general_chat(user_message, history)
                 agents_used = ["orchestrator"]
-                processing_steps = ["Análise de intenção com LLM", "Resposta conversacional"]
+                processing_steps = ["Análise LLM", "Resposta conversacional"]
             
-            # 5. Adicionar resposta ao histórico
             self.add_to_conversation(session_id, "assistant", response_text)
             
-            # 6. Retornar resposta estruturada
             return OrchestratorResponse(
                 response=response_text,
                 session_id=session_id,
@@ -627,82 +641,63 @@ ESTILO:
             )
 
 # ================================
-# INSTÂNCIA GLOBAL DO ORQUESTRADOR
+# INSTÂNCIA GLOBAL
 # ================================
 
 orchestrator = OrchestratorAgent()
 
 # ================================
-# ENDPOINTS DA API
+# ENDPOINTS
 # ================================
 
 @app.get("/")
 def home():
     return {
-        "message": "🤖 Sistema de Agentes Orquestradores - COMPATÍVEL COM LOVABLE",
-        "version": "3.1 - Lovable Compatible",
+        "message": "🤖 Sistema de Agentes Orquestradores - SQL CORRIGIDO",
+        "version": "3.2 - SQL Fixed",
         "status": "online",
-        "cors": "enabled",
-        "payload_formats": ["json", "form-data", "multiple_field_names"],
-        "architecture": {
-            "layer_1": "Orquestrador Principal (único ponto de contato)",
-            "layer_2": "Agente SQL Especialista (independente)",
-            "communication": "JSON estruturado entre agentes"
-        }
+        "fixes": ["Lógica SQL corrigida", "Sintaxe PostgREST adequada", "Mapeamento cluster melhorado"]
     }
 
 @app.get("/health")
 def health():
     return {
         "status": "healthy",
-        "architecture": "correct",
-        "orchestrator": "active_with_llm",
-        "sql_agent": "independent",
-        "cors": "enabled",
-        "lovable_compatible": True,
+        "sql_logic": "fixed",
+        "postgrest_syntax": "correct",
+        "cluster_mapping": "improved",
         "openai_configured": bool(os.getenv("OPENAI_API_KEY")),
         "supabase_configured": bool(os.getenv("SUPABASE_URL")) and bool(os.getenv("SUPABASE_ANON_KEY")),
         "timestamp": datetime.now().isoformat()
     }
 
-# ENDPOINT PRINCIPAL COM COMPATIBILIDADE MELHORADA
 @app.post("/webhook/lovable")
 async def lovable_webhook(request: Request):
-    """
-    ENDPOINT PRINCIPAL - COMPATÍVEL COM MÚLTIPLOS FORMATOS
-    - Aceita JSON, form-data, diferentes nomes de campos
-    - CORS melhorado
-    - Logs detalhados para debug
-    """
+    """Endpoint principal com SQL corrigido"""
     try:
-        # Log da requisição para debug
-        print(f"🔍 Headers recebidos: {dict(request.headers)}")
+        print(f"🔍 Headers: {dict(request.headers)}")
         
-        # Tentar diferentes formatos de payload
         payload_data = {}
         
         try:
-            # Tentar JSON primeiro
             if request.headers.get("content-type", "").startswith("application/json"):
                 raw_body = await request.body()
-                print(f"🔍 Raw JSON body: {raw_body.decode()}")
+                print(f"🔍 JSON body: {raw_body.decode()}")
                 payload_data = json.loads(raw_body.decode())
             else:
-                # Tentar form data
                 form_data = await request.form()
                 payload_data = dict(form_data)
-                print(f"🔍 Form data recebido: {payload_data}")
+                print(f"🔍 Form data: {payload_data}")
         except Exception as e:
-            print(f"❌ Erro ao parsear payload: {e}")
+            print(f"❌ Erro payload: {e}")
             return {
-                "response": "❌ Erro ao processar formato da mensagem",
+                "response": "❌ Erro ao processar mensagem",
                 "session_id": "error",
                 "timestamp": datetime.now().isoformat(),
                 "success": False,
                 "error": str(e)
             }
         
-        # Extrair dados com múltiplos formatos possíveis
         user_message = (
             payload_data.get("user_message") or 
             payload_data.get("message") or 
@@ -718,25 +713,22 @@ async def lovable_webhook(request: Request):
             f"session_{datetime.now().timestamp()}"
         )
         
-        print(f"🔍 Dados extraídos - Mensagem: '{user_message}', Sessão: '{session_id}'")
+        print(f"🔍 Processando - Mensagem: '{user_message}', Sessão: '{session_id}'")
         
-        # Validar configuração
         if not os.getenv("OPENAI_API_KEY"):
             return {
-                "response": "⚠️ Sistema não configurado - OpenAI API key não encontrada",
+                "response": "⚠️ OpenAI não configurada",
                 "session_id": session_id,
                 "timestamp": datetime.now().isoformat(),
                 "success": False,
                 "error": "OpenAI not configured"
             }
         
-        # PROCESSAR ATRAVÉS DO ORQUESTRADOR
-        print(f"🚀 Processando através do orquestrador...")
+        print(f"🚀 Enviando para orquestrador...")
         result = await orchestrator.process_user_message(user_message, session_id)
         
-        print(f"✅ Resposta gerada: {result.response[:100]}...")
+        print(f"✅ Resposta: {result.response[:100]}...")
         
-        # Retornar resposta compatível
         return {
             "response": result.response,
             "session_id": result.session_id,
@@ -749,88 +741,60 @@ async def lovable_webhook(request: Request):
     except Exception as e:
         print(f"❌ Erro crítico: {e}")
         return {
-            "response": f"❌ Erro crítico no sistema: {str(e)}",
+            "response": f"❌ Erro crítico: {str(e)}",
             "session_id": "error",
             "timestamp": datetime.now().isoformat(),
             "success": False,
             "error": str(e)
         }
 
-# ENDPOINT ADICIONAL PARA TESTE DIRETO
-@app.post("/test")
-async def test_endpoint(data: dict):
-    """Endpoint simples para teste direto"""
-    try:
-        user_message = data.get("message", "Teste de conexão")
-        session_id = data.get("session_id", "test_session")
-        
-        result = await orchestrator.process_user_message(user_message, session_id)
-        
-        return {
-            "status": "success",
-            "result": result
-        }
-    except Exception as e:
-        return {
-            "status": "error",
-            "error": str(e)
-        }
-
-# ENDPOINT OPTIONS PARA CORS
 @app.options("/webhook/lovable")
 async def options_webhook():
-    """Endpoint OPTIONS para CORS preflight"""
     return {"status": "ok"}
 
-# ================================
-# ENDPOINTS DE DEBUG
-# ================================
-
-@app.get("/debug/cors")
-async def debug_cors():
-    """Debug: verificar configuração CORS"""
-    return {
-        "cors_status": "enabled",
-        "allowed_origins": ["*"],
-        "allowed_methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        "allowed_headers": ["*"],
-        "credentials": True
-    }
-
-@app.post("/debug/payload")
-async def debug_payload(request: Request):
-    """Debug: verificar formato do payload recebido"""
+@app.get("/debug/sql-test")
+async def debug_sql_test():
+    """Debug: testar lógica SQL corrigida"""
     try:
-        headers = dict(request.headers)
+        sql_agent = SQLAgent()
         
-        # Tentar diferentes formatos
-        try:
-            raw_body = await request.body()
-            body_text = raw_body.decode()
-        except:
-            body_text = "Não foi possível ler o body"
+        # Teste 1: Receita cluster 1
+        instruction1 = AgentInstruction(
+            agent_type="sql_agent",
+            task_description="Calcular receita total do cluster 1 (premium)",
+            user_question="Quanto de receita o cluster 1 fez?",
+            context={},
+            session_id="debug"
+        )
         
-        try:
-            if request.headers.get("content-type", "").startswith("application/json"):
-                json_data = json.loads(body_text)
-            else:
-                json_data = "Não é JSON"
-        except:
-            json_data = "Erro ao parsear JSON"
+        result1 = await sql_agent.process_instruction(instruction1)
         
-        try:
-            form_data = await request.form()
-            form_dict = dict(form_data)
-        except:
-            form_dict = "Não é form data"
+        # Teste 2: Contagem cluster 1
+        instruction2 = AgentInstruction(
+            agent_type="sql_agent", 
+            task_description="Contar clientes do cluster premium",
+            user_question="Quantos clientes premium temos?",
+            context={},
+            session_id="debug"
+        )
+        
+        result2 = await sql_agent.process_instruction(instruction2)
         
         return {
-            "headers": headers,
-            "raw_body": body_text,
-            "json_parsed": json_data,
-            "form_parsed": form_dict,
-            "content_type": request.headers.get("content-type", "não especificado")
+            "test_1_receita_cluster_1": {
+                "success": result1.success,
+                "data": result1.data,
+                "error": result1.error,
+                "metadata": result1.metadata
+            },
+            "test_2_count_cluster_1": {
+                "success": result2.success,
+                "data": result2.data,
+                "error": result2.error,
+                "metadata": result2.metadata
+            }
         }
+        
     except Exception as e:
         return {"error": str(e)}
 
