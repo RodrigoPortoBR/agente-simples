@@ -3,5 +3,3 @@ uvicorn
 httpx
 openai
 pydantic
-pydantic
-antic
