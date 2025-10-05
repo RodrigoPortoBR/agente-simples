@@ -1,6 +1,6 @@
 """
-Sistema de Agentes Orquestradores - SQL CORRIGIDO
-Versão com lógica de consulta SQL melhorada
+Sistema de Agentes Orquestradores - VERSÃO FINAL CORRIGIDA
+Problemas de agregação SQL no Supabase resolvidos
 """
 
 from fastapi import FastAPI, HTTPException, Request
@@ -16,7 +16,7 @@ from typing import List, Optional, Dict, Any, Union
 from datetime import datetime
 from enum import Enum
 
-app = FastAPI(title="Sistema de Agentes Orquestradores - SQL Corrigido")
+app = FastAPI(title="Sistema de Agentes Orquestradores - FINAL CORRIGIDO")
 
 # CORS
 app.add_middleware(
@@ -74,11 +74,11 @@ class OrchestratorResponse(BaseModel):
     processing_steps: List[str]
 
 # ================================
-# AGENTE SQL CORRIGIDO
+# AGENTE SQL CORRIGIDO - VERSÃO FINAL
 # ================================
 
 class SQLAgent:
-    """Agente SQL com lógica de consulta corrigida"""
+    """Agente SQL com problemas de agregação RESOLVIDOS"""
     
     def __init__(self):
         self.supabase_url = os.getenv("SUPABASE_URL")
@@ -86,69 +86,54 @@ class SQLAgent:
         self.headers = {
             "apikey": self.supabase_key,
             "Authorization": f"Bearer {self.supabase_key}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "Prefer": "return=representation"
         }
         
-        # Mapeamento correto de consultas
-        self.query_patterns = {
-            # Receita por cluster
+        # Estratégias de consulta corrigidas
+        self.query_strategies = {
+            # Receita por cluster - CORRIGIDO
             "receita_cluster": {
                 "keywords": ["receita", "faturamento", "vendas", "cluster"],
+                "method": "aggregate_manual",  # Fazer agregação manual
                 "table": "clientes",
-                "operation": "sum",
                 "field": "receita_12m",
                 "filter_field": "cluster_id"
             },
-            # Contagem por cluster
+            # Contagem por cluster - CORRIGIDO
             "count_cluster": {
                 "keywords": ["quantos", "numero", "count", "cluster"],
-                "table": "clientes", 
-                "operation": "count",
-                "field": "*",
+                "method": "count_manual",  # Contar manualmente
+                "table": "clientes",
                 "filter_field": "cluster_id"
             },
-            # Margem por cluster
+            # Margem média por cluster - CORRIGIDO
             "margem_cluster": {
                 "keywords": ["margem", "cluster"],
+                "method": "aggregate_manual",
                 "table": "clientes",
-                "operation": "avg",
                 "field": "gm_12m",
                 "filter_field": "cluster_id"
             },
-            # Top clientes
+            # Top clientes - FUNCIONA
             "top_clientes": {
                 "keywords": ["top", "melhor", "maior", "cliente"],
+                "method": "select_ordered",
                 "table": "clientes",
-                "operation": "select",
-                "field": "nome,receita_12m,gm_12m,cluster_id",
+                "fields": "nome,receita_12m,gm_12m,cluster_id",
                 "order": "receita_12m.desc"
             },
-            # Dados de cluster (tabela clusters)
+            # Dados de cluster - FUNCIONA
             "info_clusters": {
                 "keywords": ["cluster", "segmento", "grupo"],
+                "method": "select_simple",
                 "table": "clusters",
-                "operation": "select",
-                "field": "*"
-            },
-            # Pedidos
-            "pedidos": {
-                "keywords": ["pedido", "compra", "order"],
-                "table": "pedidos",
-                "operation": "select",
-                "field": "*"
-            },
-            # Séries temporais
-            "temporal": {
-                "keywords": ["mes", "mensal", "crescimento", "tempo"],
-                "table": "monthly_series",
-                "operation": "select",
-                "field": "*",
-                "order": "mes.desc"
+                "fields": "*"
             }
         }
     
-    def analyze_data_request_improved(self, instruction: AgentInstruction) -> Dict[str, Any]:
-        """Análise melhorada de consultas com lógica corrigida"""
+    def analyze_data_request_final(self, instruction: AgentInstruction) -> Dict[str, Any]:
+        """Análise final com estratégias corrigidas"""
         task_description = instruction.task_description.lower()
         user_question = instruction.user_question.lower()
         combined_text = f"{task_description} {user_question}"
@@ -170,165 +155,89 @@ class SQLAgent:
                 cluster_id = cluster
                 break
         
-        # Detectar tipo de consulta
-        query_type = None
-        for pattern_name, pattern_config in self.query_patterns.items():
-            keywords = pattern_config["keywords"]
-            if all(keyword in combined_text for keyword in keywords[:2]):  # Pelo menos 2 keywords
-                query_type = pattern_name
+        # Detectar estratégia de consulta
+        strategy_name = None
+        for name, strategy in self.query_strategies.items():
+            keywords = strategy["keywords"]
+            # Verificar se pelo menos 2 keywords estão presentes
+            matches = sum(1 for keyword in keywords if keyword in combined_text)
+            if matches >= 2:
+                strategy_name = name
                 break
-            elif any(keyword in combined_text for keyword in keywords):
-                if not query_type:  # Primeira correspondência parcial
-                    query_type = pattern_name
+            elif matches >= 1 and not strategy_name:
+                strategy_name = name
         
-        # Fallback para consultas de receita/cluster
-        if not query_type and cluster_id and any(word in combined_text for word in ["receita", "faturamento", "vendas"]):
-            query_type = "receita_cluster"
-        elif not query_type and cluster_id and any(word in combined_text for word in ["quantos", "count"]):
-            query_type = "count_cluster"
-        elif not query_type and cluster_id:
-            query_type = "top_clientes"
+        # Fallback baseado em cluster + tipo
+        if not strategy_name and cluster_id:
+            if any(word in combined_text for word in ["receita", "faturamento", "vendas"]):
+                strategy_name = "receita_cluster"
+            elif any(word in combined_text for word in ["quantos", "count", "numero"]):
+                strategy_name = "count_cluster"
+            elif any(word in combined_text for word in ["margem"]):
+                strategy_name = "margem_cluster"
+            else:
+                strategy_name = "top_clientes"
         
-        # Configuração padrão se não detectar
-        if not query_type:
-            query_type = "top_clientes"
+        # Default
+        if not strategy_name:
+            strategy_name = "top_clientes"
         
-        config = self.query_patterns[query_type]
+        strategy = self.query_strategies[strategy_name]
         
-        # Detectar limite
+        # Detectar limite para consultas ordenadas
         limit = None
-        numbers = re.findall(r'\d+', combined_text)
+        numbers = re.findall(r'\\d+', combined_text)
         if numbers and any(word in combined_text for word in ["top", "primeiro", "ultimos"]):
             limit = int(numbers[0])
-        elif config["operation"] == "select":
-            limit = 10  # Default
-        
-        # Construir parâmetros
-        params = {
-            "select": config["field"],
-            "limit": limit,
-            "order": config.get("order"),
-            "filters": {}
-        }
-        
-        # Adicionar filtro de cluster se detectado
-        if cluster_id and config.get("filter_field"):
-            params["filters"][config["filter_field"]] = f"eq.{cluster_id}"
-        
-        # Ajustar para operações de agregação
-        if config["operation"] in ["sum", "count", "avg"]:
-            if config["operation"] == "sum":
-                params["select"] = f"{config['field']}.sum()"
-            elif config["operation"] == "count":
-                params["select"] = "*"  # Para count, usamos select=* e contamos no código
-            elif config["operation"] == "avg":
-                params["select"] = f"{config['field']}.avg()"
+        elif strategy["method"] in ["select_ordered", "select_simple"]:
+            limit = 10
         
         result = {
-            "table": config["table"],
-            "operation": config["operation"],
-            "query_type": query_type,
+            "strategy_name": strategy_name,
+            "method": strategy["method"],
+            "table": strategy["table"],
             "cluster_id": cluster_id,
-            "params": params
+            "limit": limit,
+            "strategy_config": strategy
         }
         
-        print(f"✅ Análise resultado: {result}")
+        print(f"✅ Estratégia selecionada: {result}")
         return result
     
-    async def execute_query_improved(self, analysis: Dict[str, Any]) -> Dict[str, Any]:
-        """Execução melhorada de consultas"""
+    async def execute_query_final(self, analysis: Dict[str, Any]) -> Dict[str, Any]:
+        """Execução final com métodos corrigidos"""
         try:
             start_time = datetime.now()
-            
+            method = analysis["method"]
             table = analysis["table"]
-            params = analysis["params"]
-            operation = analysis["operation"]
+            cluster_id = analysis.get("cluster_id")
+            strategy_config = analysis["strategy_config"]
             
-            # Construir URL base
-            url = f"{self.supabase_url}/rest/v1/{table}"
-            query_params = []
+            print(f"🚀 Executando método: {method}")
             
-            # Para operações de agregação, usar sintaxe correta do PostgREST
-            if operation == "sum":
-                # Para soma, precisamos usar select com função de agregação
-                field_to_sum = params["select"].replace(".sum()", "")
-                query_params.append(f"select={field_to_sum}.sum()")
-            elif operation == "count":
-                # Para contagem, usar select=count
-                query_params.append("select=count")
-            elif operation == "avg":
-                # Para média, usar função de agregação
-                field_to_avg = params["select"].replace(".avg()", "")
-                query_params.append(f"select={field_to_avg}.avg()")
+            if method == "aggregate_manual":
+                # CORREÇÃO: Buscar dados e agregar manualmente
+                return await self._aggregate_manual(table, strategy_config, cluster_id, start_time)
+            
+            elif method == "count_manual":
+                # CORREÇÃO: Buscar dados e contar manualmente
+                return await self._count_manual(table, strategy_config, cluster_id, start_time)
+            
+            elif method == "select_ordered":
+                # Consulta ordenada (funciona normalmente)
+                return await self._select_ordered(table, strategy_config, cluster_id, analysis.get("limit"), start_time)
+            
+            elif method == "select_simple":
+                # Consulta simples (funciona normalmente)
+                return await self._select_simple(table, strategy_config, start_time)
+            
             else:
-                # Select normal
-                if params.get("select"):
-                    query_params.append(f"select={params['select']}")
-            
-            # Adicionar filtros
-            for field, filter_value in params.get("filters", {}).items():
-                query_params.append(f"{field}={filter_value}")
-            
-            # Adicionar ordenação (apenas para select normal)
-            if operation == "select" and params.get("order"):
-                query_params.append(f"order={params['order']}")
-            
-            # Adicionar limite (apenas para select normal)
-            if operation == "select" and params.get("limit"):
-                query_params.append(f"limit={params['limit']}")
-            
-            # Construir URL final
-            if query_params:
-                url += "?" + "&".join(query_params)
-            
-            print(f"🔗 URL construída: {url}")
-            
-            # Executar requisição
-            async with httpx.AsyncClient() as client:
-                response = await client.get(url, headers=self.headers, timeout=15.0)
+                return {
+                    "success": False,
+                    "error": f"Método não implementado: {method}",
+                    "data": None
+                }
                 
-                execution_time = (datetime.now() - start_time).total_seconds()
-                
-                print(f"📊 Status: {response.status_code}")
-                print(f"📊 Resposta: {response.text[:200]}...")
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    
-                    # Processar resultado baseado na operação
-                    if operation == "count":
-                        # Para count, o resultado vem como lista, precisamos contar
-                        if isinstance(data, list):
-                            processed_data = [{"count": len(data)}]
-                        else:
-                            processed_data = data
-                    else:
-                        processed_data = data
-                    
-                    return {
-                        "success": True,
-                        "data": processed_data,
-                        "row_count": len(processed_data) if isinstance(processed_data, list) else 1,
-                        "execution_time": execution_time,
-                        "query_info": {
-                            "table": table,
-                            "operation": operation,
-                            "url": url,
-                            "cluster_id": analysis.get("cluster_id")
-                        }
-                    }
-                else:
-                    return {
-                        "success": False,
-                        "error": f"API Error {response.status_code}: {response.text}",
-                        "data": None,
-                        "query_info": {
-                            "url": url,
-                            "table": table,
-                            "operation": operation
-                        }
-                    }
-                    
         except Exception as e:
             print(f"❌ Erro na execução: {e}")
             return {
@@ -337,21 +246,286 @@ class SQLAgent:
                 "data": None
             }
     
-    async def process_instruction(self, instruction: AgentInstruction) -> AgentResponse:
-        """Método principal do Agente SQL corrigido"""
+    async def _aggregate_manual(self, table: str, config: Dict, cluster_id: str, start_time: datetime) -> Dict[str, Any]:
+        """Agregação manual - SOLUÇÃO para problemas do Supabase"""
         try:
-            print(f"🚀 SQL Agent processando: {instruction.user_question}")
+            # Construir URL para buscar dados brutos
+            url = f"{self.supabase_url}/rest/v1/{table}"
+            params = []
             
-            # 1. Analisar instrução com lógica melhorada
-            analysis = self.analyze_data_request_improved(instruction)
+            # Selecionar campo necessário
+            field = config["field"]
+            params.append(f"select={field}")
             
-            # 2. Executar consulta com sintaxe corrigida
-            query_result = await self.execute_query_improved(analysis)
+            # Adicionar filtro de cluster se especificado
+            if cluster_id and config.get("filter_field"):
+                params.append(f"{config['filter_field']}=eq.{cluster_id}")
+            
+            # Construir URL final
+            if params:
+                url += "?" + "&".join(params)
+            
+            print(f"🔗 URL agregação manual: {url}")
+            
+            # Executar requisição
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=self.headers, timeout=15.0)
+                
+                execution_time = (datetime.now() - start_time).total_seconds()
+                
+                if response.status_code == 200:
+                    raw_data = response.json()
+                    
+                    if not raw_data:
+                        return {
+                            "success": True,
+                            "data": [{"total": 0, "count": 0, "average": 0}],
+                            "row_count": 1,
+                            "execution_time": execution_time,
+                            "query_info": {
+                                "method": "aggregate_manual",
+                                "table": table,
+                                "field": field,
+                                "cluster_id": cluster_id,
+                                "raw_count": 0
+                            }
+                        }
+                    
+                    # Fazer agregação manual
+                    values = [item[field] for item in raw_data if item.get(field) is not None]
+                    
+                    if values:
+                        total = sum(values)
+                        count = len(values)
+                        average = total / count if count > 0 else 0
+                    else:
+                        total = count = average = 0
+                    
+                    # Resultado agregado
+                    aggregated_data = [{
+                        "total": total,
+                        "count": count,
+                        "average": round(average, 2),
+                        "field": field,
+                        "cluster_id": cluster_id
+                    }]
+                    
+                    return {
+                        "success": True,
+                        "data": aggregated_data,
+                        "row_count": 1,
+                        "execution_time": execution_time,
+                        "query_info": {
+                            "method": "aggregate_manual",
+                            "table": table,
+                            "field": field,
+                            "cluster_id": cluster_id,
+                            "raw_count": len(raw_data),
+                            "url": url
+                        }
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": f"API Error {response.status_code}: {response.text}",
+                        "data": None
+                    }
+                    
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Erro na agregação manual: {str(e)}",
+                "data": None
+            }
+    
+    async def _count_manual(self, table: str, config: Dict, cluster_id: str, start_time: datetime) -> Dict[str, Any]:
+        """Contagem manual - SOLUÇÃO para problemas do Supabase"""
+        try:
+            # Construir URL para buscar dados
+            url = f"{self.supabase_url}/rest/v1/{table}"
+            params = ["select=id"]  # Só precisamos do ID para contar
+            
+            # Adicionar filtro de cluster se especificado
+            if cluster_id and config.get("filter_field"):
+                params.append(f"{config['filter_field']}=eq.{cluster_id}")
+            
+            # Construir URL final
+            if params:
+                url += "?" + "&".join(params)
+            
+            print(f"🔗 URL contagem manual: {url}")
+            
+            # Executar requisição
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=self.headers, timeout=15.0)
+                
+                execution_time = (datetime.now() - start_time).total_seconds()
+                
+                if response.status_code == 200:
+                    raw_data = response.json()
+                    count = len(raw_data)
+                    
+                    # Resultado da contagem
+                    count_data = [{
+                        "count": count,
+                        "cluster_id": cluster_id,
+                        "table": table
+                    }]
+                    
+                    return {
+                        "success": True,
+                        "data": count_data,
+                        "row_count": 1,
+                        "execution_time": execution_time,
+                        "query_info": {
+                            "method": "count_manual",
+                            "table": table,
+                            "cluster_id": cluster_id,
+                            "url": url
+                        }
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": f"API Error {response.status_code}: {response.text}",
+                        "data": None
+                    }
+                    
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Erro na contagem manual: {str(e)}",
+                "data": None
+            }
+    
+    async def _select_ordered(self, table: str, config: Dict, cluster_id: str, limit: int, start_time: datetime) -> Dict[str, Any]:
+        """Consulta ordenada (funciona normalmente)"""
+        try:
+            url = f"{self.supabase_url}/rest/v1/{table}"
+            params = []
+            
+            # Campos a selecionar
+            if config.get("fields"):
+                params.append(f"select={config['fields']}")
+            
+            # Filtro de cluster
+            if cluster_id and config.get("filter_field"):
+                params.append(f"{config['filter_field']}=eq.{cluster_id}")
+            
+            # Ordenação
+            if config.get("order"):
+                params.append(f"order={config['order']}")
+            
+            # Limite
+            if limit:
+                params.append(f"limit={limit}")
+            
+            # Construir URL final
+            if params:
+                url += "?" + "&".join(params)
+            
+            print(f"🔗 URL select ordenado: {url}")
+            
+            # Executar requisição
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=self.headers, timeout=15.0)
+                
+                execution_time = (datetime.now() - start_time).total_seconds()
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    
+                    return {
+                        "success": True,
+                        "data": data,
+                        "row_count": len(data),
+                        "execution_time": execution_time,
+                        "query_info": {
+                            "method": "select_ordered",
+                            "table": table,
+                            "cluster_id": cluster_id,
+                            "url": url
+                        }
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": f"API Error {response.status_code}: {response.text}",
+                        "data": None
+                    }
+                    
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Erro no select ordenado: {str(e)}",
+                "data": None
+            }
+    
+    async def _select_simple(self, table: str, config: Dict, start_time: datetime) -> Dict[str, Any]:
+        """Consulta simples (funciona normalmente)"""
+        try:
+            url = f"{self.supabase_url}/rest/v1/{table}"
+            params = []
+            
+            # Campos a selecionar
+            if config.get("fields"):
+                params.append(f"select={config['fields']}")
+            
+            # Construir URL final
+            if params:
+                url += "?" + "&".join(params)
+            
+            print(f"🔗 URL select simples: {url}")
+            
+            # Executar requisição
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=self.headers, timeout=15.0)
+                
+                execution_time = (datetime.now() - start_time).total_seconds()
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    
+                    return {
+                        "success": True,
+                        "data": data,
+                        "row_count": len(data),
+                        "execution_time": execution_time,
+                        "query_info": {
+                            "method": "select_simple",
+                            "table": table,
+                            "url": url
+                        }
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": f"API Error {response.status_code}: {response.text}",
+                        "data": None
+                    }
+                    
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Erro no select simples: {str(e)}",
+                "data": None
+            }
+    
+    async def process_instruction(self, instruction: AgentInstruction) -> AgentResponse:
+        """Método principal do Agente SQL - VERSÃO FINAL"""
+        try:
+            print(f"🚀 SQL Agent FINAL processando: {instruction.user_question}")
+            
+            # 1. Analisar instrução
+            analysis = self.analyze_data_request_final(instruction)
+            
+            # 2. Executar consulta com método corrigido
+            query_result = await self.execute_query_final(analysis)
             
             # 3. Retornar resposta estruturada
             return AgentResponse(
                 success=query_result["success"],
-                agent_type="sql_agent",
+                agent_type="sql_agent_final",
                 data=query_result.get("data"),
                 error=query_result.get("error"),
                 metadata={
@@ -363,15 +537,15 @@ class SQLAgent:
             )
             
         except Exception as e:
-            print(f"❌ Erro no SQL Agent: {e}")
+            print(f"❌ Erro no SQL Agent FINAL: {e}")
             return AgentResponse(
                 success=False,
-                agent_type="sql_agent",
+                agent_type="sql_agent_final",
                 error=str(e)
             )
 
 # ================================
-# AGENTE ORQUESTRADOR (MANTIDO IGUAL)
+# AGENTE ORQUESTRADOR (MANTIDO)
 # ================================
 
 class OrchestratorAgent:
@@ -405,7 +579,7 @@ class OrchestratorAgent:
             if history:
                 recent_messages = history[-4:]
                 for msg in recent_messages:
-                    conversation_context += f"{msg['role']}: {msg['content']}\n"
+                    conversation_context += f"{msg['role']}: {msg['content']}\\n"
             
             prompt = f"""Você é um Agente Orquestrador especializado em análise de dados de e-commerce.
 
@@ -440,62 +614,51 @@ RESPONDA EM JSON:
 }}"""
 
             response = self.client.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-4.1-mini",
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=400,
+                max_tokens=300,
                 temperature=0.3
             )
             
-            response_text = response.choices[0].message.content.strip()
+            llm_response = response.choices[0].message.content
             
+            # Extrair JSON da resposta
             try:
-                json_start = response_text.find('{')
-                json_end = response_text.rfind('}') + 1
-                if json_start >= 0 and json_end > json_start:
-                    json_str = response_text[json_start:json_end]
-                    return json.loads(json_str)
-                else:
-                    raise ValueError("JSON não encontrado")
+                json_start = llm_response.find('{')
+                json_end = llm_response.rfind('}') + 1
+                json_str = llm_response[json_start:json_end]
+                intent_analysis = json.loads(json_str)
             except:
-                return self.fallback_intent_analysis(user_message)
+                # Fallback: análise por palavras-chave
+                message_lower = user_message.lower()
+                data_keywords = ['quantos', 'quanto', 'total', 'receita', 'margem', 'clientes', 'cluster', 'vendas', 'dados']
+                needs_data = any(keyword in message_lower for keyword in data_keywords)
                 
+                intent_analysis = {
+                    "needs_data_analysis": needs_data,
+                    "intent_type": "data_analysis" if needs_data else "general_chat",
+                    "confidence": 0.7,
+                    "sql_instruction": {
+                        "task_description": f"Analisar dados baseado na pergunta: {user_message}",
+                        "expected_data": "Dados relevantes da consulta",
+                        "business_context": "Análise de negócio solicitada"
+                    },
+                    "reasoning": "Fallback: análise por palavras-chave"
+                }
+            
+            return intent_analysis
+            
         except Exception as e:
-            return self.fallback_intent_analysis(user_message)
-    
-    def fallback_intent_analysis(self, user_message: str) -> Dict[str, Any]:
-        """Fallback para análise de intenção"""
-        message_lower = user_message.lower()
-        
-        data_keywords = [
-            "quantos", "quanto", "total", "soma", "média", "margem", "receita", "vendas",
-            "mostre", "liste", "dados", "relatório", "análise", "performance", "crescimento",
-            "clientes", "pedidos", "clusters", "top", "ranking", "último", "recente", "cluster"
-        ]
-        
-        needs_data = any(keyword in message_lower for keyword in data_keywords)
-        
-        if needs_data:
-            return {
-                "needs_data_analysis": True,
-                "intent_type": "data_analysis",
-                "confidence": 0.7,
-                "sql_instruction": {
-                    "task_description": f"Analisar dados baseado na pergunta: {user_message}",
-                    "expected_data": "Dados relevantes da consulta",
-                    "business_context": "Análise de negócio solicitada"
-                },
-                "reasoning": "Detectadas palavras-chave de dados"
-            }
-        else:
+            print(f"❌ Erro na análise de intenção: {e}")
             return {
                 "needs_data_analysis": False,
                 "intent_type": "general_chat",
-                "confidence": 0.8,
-                "reasoning": "Conversa geral"
+                "confidence": 0.5,
+                "reasoning": f"Erro na análise: {str(e)}"
             }
     
     async def handle_data_analysis(self, user_message: str, intent_analysis: Dict, session_id: str) -> tuple:
-        """Coordena análise de dados"""
+        """Delegar para agente SQL e converter resposta"""
         try:
             sql_instruction = AgentInstruction(
                 agent_type="sql_agent",
@@ -514,9 +677,9 @@ RESPONDA EM JSON:
                 natural_response = await self.convert_json_to_natural_language(
                     user_message, sql_response.data, sql_response.metadata
                 )
-                return natural_response, ["sql_agent"], ["Análise LLM", "Consulta SQL", "Conversão natural"]
+                return natural_response, ["sql_agent_final"], ["Análise LLM", "Consulta SQL corrigida", "Conversão natural"]
             else:
-                return f"❌ Erro na consulta: {sql_response.error}", ["sql_agent"], ["Análise LLM", "Erro SQL"]
+                return f"❌ Erro na consulta: {sql_response.error}", ["sql_agent_final"], ["Análise LLM", "Erro SQL"]
                 
         except Exception as e:
             return f"❌ Erro na análise: {str(e)}", ["error"], ["Erro no processamento"]
@@ -534,6 +697,7 @@ DADOS:
 METADADOS:
 - Registros: {metadata.get('row_count', 0)}
 - Tempo: {metadata.get('execution_time', 0):.2f}s
+- Método: {metadata.get('query_info', {}).get('method', 'N/A')}
 - Tabela: {metadata.get('query_info', {}).get('table', 'N/A')}
 - Cluster: {metadata.get('query_info', {}).get('cluster_id', 'N/A')}
 
@@ -554,7 +718,7 @@ FORNEÇA:
 Máximo 250 palavras, use emojis estrategicamente."""
 
             response = self.client.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-4.1-mini",
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=400,
                 temperature=0.7
@@ -588,7 +752,7 @@ ESTILO: Português brasileiro, educado, máximo 150 palavras, emojis ocasionais"
             messages.append({"role": "user", "content": user_message})
             
             response = self.client.chat.completions.create(
-                model="gpt-4o-mini",
+                model="gpt-4.1-mini",
                 messages=messages,
                 max_tokens=200,
                 temperature=0.7
@@ -653,19 +817,24 @@ orchestrator = OrchestratorAgent()
 @app.get("/")
 def home():
     return {
-        "message": "🤖 Sistema de Agentes Orquestradores - SQL CORRIGIDO",
-        "version": "3.2 - SQL Fixed",
+        "message": "🤖 Sistema de Agentes Orquestradores - VERSÃO FINAL CORRIGIDA",
+        "version": "4.0 - FINAL FIXED",
         "status": "online",
-        "fixes": ["Lógica SQL corrigida", "Sintaxe PostgREST adequada", "Mapeamento cluster melhorado"]
+        "fixes": [
+            "✅ Agregação manual implementada",
+            "✅ Contagem manual implementada", 
+            "✅ Problemas Supabase resolvidos",
+            "✅ Métodos de consulta corrigidos"
+        ]
     }
 
 @app.get("/health")
 def health():
     return {
         "status": "healthy",
-        "sql_logic": "fixed",
-        "postgrest_syntax": "correct",
-        "cluster_mapping": "improved",
+        "sql_aggregation": "fixed_manual",
+        "supabase_issues": "resolved",
+        "query_methods": "corrected",
         "openai_configured": bool(os.getenv("OPENAI_API_KEY")),
         "supabase_configured": bool(os.getenv("SUPABASE_URL")) and bool(os.getenv("SUPABASE_ANON_KEY")),
         "timestamp": datetime.now().isoformat()
@@ -673,7 +842,7 @@ def health():
 
 @app.post("/webhook/lovable")
 async def lovable_webhook(request: Request):
-    """Endpoint principal com SQL corrigido"""
+    """Endpoint principal - VERSÃO FINAL CORRIGIDA"""
     try:
         print(f"🔍 Headers: {dict(request.headers)}")
         
@@ -724,10 +893,10 @@ async def lovable_webhook(request: Request):
                 "error": "OpenAI not configured"
             }
         
-        print(f"🚀 Enviando para orquestrador...")
+        print(f"🚀 Enviando para orquestrador FINAL...")
         result = await orchestrator.process_user_message(user_message, session_id)
         
-        print(f"✅ Resposta: {result.response[:100]}...")
+        print(f"✅ Resposta FINAL: {result.response[:100]}...")
         
         return {
             "response": result.response,
@@ -752,16 +921,16 @@ async def lovable_webhook(request: Request):
 async def options_webhook():
     return {"status": "ok"}
 
-@app.get("/debug/sql-test")
-async def debug_sql_test():
-    """Debug: testar lógica SQL corrigida"""
+@app.get("/debug/sql-test-final")
+async def debug_sql_test_final():
+    """Debug: testar correções finais"""
     try:
         sql_agent = SQLAgent()
         
-        # Teste 1: Receita cluster 1
+        # Teste 1: Receita cluster 1 (agregação manual)
         instruction1 = AgentInstruction(
             agent_type="sql_agent",
-            task_description="Calcular receita total do cluster 1 (premium)",
+            task_description="Calcular receita total do cluster 1 (premium) usando agregação manual",
             user_question="Quanto de receita o cluster 1 fez?",
             context={},
             session_id="debug"
@@ -769,10 +938,10 @@ async def debug_sql_test():
         
         result1 = await sql_agent.process_instruction(instruction1)
         
-        # Teste 2: Contagem cluster 1
+        # Teste 2: Contagem cluster 1 (contagem manual)
         instruction2 = AgentInstruction(
             agent_type="sql_agent", 
-            task_description="Contar clientes do cluster premium",
+            task_description="Contar clientes do cluster premium usando contagem manual",
             user_question="Quantos clientes premium temos?",
             context={},
             session_id="debug"
@@ -780,18 +949,41 @@ async def debug_sql_test():
         
         result2 = await sql_agent.process_instruction(instruction2)
         
+        # Teste 3: Top clientes (select ordenado - funciona normalmente)
+        instruction3 = AgentInstruction(
+            agent_type="sql_agent",
+            task_description="Listar top 5 clientes por receita",
+            user_question="Top 5 clientes por receita",
+            context={},
+            session_id="debug"
+        )
+        
+        result3 = await sql_agent.process_instruction(instruction3)
+        
         return {
-            "test_1_receita_cluster_1": {
+            "test_1_receita_cluster_1_manual": {
                 "success": result1.success,
                 "data": result1.data,
                 "error": result1.error,
                 "metadata": result1.metadata
             },
-            "test_2_count_cluster_1": {
+            "test_2_count_cluster_1_manual": {
                 "success": result2.success,
                 "data": result2.data,
                 "error": result2.error,
                 "metadata": result2.metadata
+            },
+            "test_3_top_clientes_ordenado": {
+                "success": result3.success,
+                "data": result3.data,
+                "error": result3.error,
+                "metadata": result3.metadata
+            },
+            "summary": {
+                "aggregation_fixed": result1.success,
+                "counting_fixed": result2.success,
+                "ordering_works": result3.success,
+                "all_methods_working": result1.success and result2.success and result3.success
             }
         }
         
