@@ -3,5 +3,5 @@ uvicorn
 httpx
 openai
 pydantic
-assyncpg
+pydantic
 antic
