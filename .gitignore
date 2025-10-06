@@ -1,0 +1,205 @@
+# ================================
+# GITIGNORE - SISTEMA DE AGENTES
+# ================================
+
+# --------------------------------
+# Credenciais e Secrets (CRÍTICO)
+# --------------------------------
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+secrets.json
+
+# --------------------------------
+# Python
+# --------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# --------------------------------
+# Virtual Environments
+# --------------------------------
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+
+# --------------------------------
+# IDEs
+# --------------------------------
+# VSCode
+.vscode/
+*.code-workspace
+
+# PyCharm
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Sublime Text
+.env
+# ================================
+# GITIGNORE - SISTEMA DE AGENTES
+# ================================
+
+# --------------------------------
+# Credenciais e Secrets (CRÍTICO)
+# --------------------------------
+# .env is already listed above
+.env.local
+.env.*.local
+*.key
+*.pem
+secrets.json
+
+# --------------------------------
+# Python
+# --------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# --------------------------------
+# Virtual Environments
+# --------------------------------
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+
+# --------------------------------
+# IDEs
+# --------------------------------
+# VSCode
+.vscode/
+*.code-workspace
+
+# PyCharm
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# --------------------------------
+# Logs e Databases
+# --------------------------------
+*.log
+logs/
+*.db
+*.sqlite
+*.sqlite3
+
+# --------------------------------
+# OS
+# --------------------------------
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+
+# --------------------------------
+# Testing
+# --------------------------------
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# --------------------------------
+# Jupyter Notebook
+# --------------------------------
+.ipynb_checkpoints
+
+# --------------------------------
+# Backup e Temp
+# --------------------------------
+*.bak
+*.tmp
+*.temp
+.cache/
+
+# --------------------------------
+# Deploy e Build
+# --------------------------------
+.vercel
+.netlify
+
+# --------------------------------
+# Documentação
+# --------------------------------
+site/
+.mkdocs_cache/
+
+# --------------------------------
+# Outros
+# --------------------------------
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
