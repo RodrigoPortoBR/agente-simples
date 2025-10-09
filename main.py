@@ -27,13 +27,28 @@ app = FastAPI(
 # ================================
 # CORS - CONFIGURAÇÃO CRÍTICA
 # ================================
+# Lista explícita de origens permitidas
+origins = [
+    "https://lovable.dev",
+    "https://app.lovable.dev",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000"
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Permite qualquer origem (Lovable, etc)
-    allow_credentials=True,
+    allow_origins=origins,  # ❌ não use "*"
+    allow_credentials=True,  # Permite cookies/autenticação
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],  # Inclui OPTIONS
-    allow_headers=["*"],
-    expose_headers=["*"]
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "Accept",
+        "Origin",
+        "User-Agent",
+        "X-Requested-With",
+    ],
+    expose_headers=["Content-Disposition"],  # opcional: p/ download de arquivos
 )
 
 # Instância global do Orquestrador
