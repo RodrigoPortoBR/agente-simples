@@ -1,466 +1,385 @@
-"""SQL Agent - Especialista em consultas e análise de dados"""
+"""
+SQL Agent - Especialista em análises do Lovable Cloud
+Acessa dados de clientes, pedidos, clusters e séries temporais
+"""
 from typing import Any, Dict, List
-import asyncio
 import json
 import os
 from datetime import datetime
 import httpx
 
 class SQLAgent:
-    def __init__(self, dsn: str = ""):
-        self.dsn = dsn
-        self.supabase_url = None
-        self.supabase_key = None
-        self._setup_supabase()
-    
-    def _setup_supabase(self):
-        """Configurar conexão com Supabase"""
-        self.supabase_url = os.getenv('SUPABASE_URL')
-        self.supabase_key = os.getenv('SUPABASE_ANON_KEY')
+    def __init__(self, config: Any = None):
+        self.config = config
+        self.supabase_url = os.getenv("SUPABASE_URL")
+        self.supabase_key = os.getenv("SUPABASE_ANON_KEY")
         
-        if not self.supabase_url or not self.supabase_key:
-            print("⚠️ Variáveis Supabase não configuradas")
-            print(f"SUPABASE_URL: {'✅' if self.supabase_url else '❌'}")
-            print(f"SUPABASE_ANON_KEY: {'✅' if self.supabase_key else '❌'}")
+        # Schema do Lovable Cloud
+        self.schema = {
+            "clientes": {
+                "columns": ["id", "nome", "email", "cluster_id", "data_criacao", "status"],
+                "description": "Dados dos clientes do Lovable Cloud"
+            },
+            "clusters": {
+                "columns": ["id", "nome", "tipo", "valor_mensal", "descricao"],
+                "description": "Segmentação e categorização de clientes"
+            },
+            "pedidos": {
+                "columns": ["id", "cliente_id", "valor", "data", "status", "produto"],
+                "description": "Transações e pedidos dos clientes"
+            },
+            "monthly_series": {
+                "columns": ["id", "cliente_id", "mes", "valor", "metricas", "data_ref"],
+                "description": "Séries temporais mensais de métricas"
+            }
+        }
     
-    def query(self, q: str):
-        """Método legacy para compatibilidade"""
-        return []
+    def start(self):
+        return "started"
     
-    async def process_data_request(self, message: str, session_id: str) -> Dict:
+    async def process_business_query(self, message: str, session_id: str) -> str:
         """
-        Processa requisição de dados do Orquestrador
+        Processa consulta de negócios e retorna JSON estruturado
         """
         try:
-            print(f"🔍 SQL Agent processando: '{message}' (sessão: {session_id})")
+            print(f"🔍 SQL Agent analisando: '{message}' (sessão: {session_id})")
             
-            # Verificar configuração
-            if not self.supabase_url or not self.supabase_key:
-                return self._config_error_response()
+            # Gerar query SQL baseada na mensagem
+            sql_query = self._generate_sql_query(message)
             
-            # Analisar tipo de consulta
-            query_type = self._analyze_query_type(message)
-            print(f"📊 Tipo de consulta identificado: {query_type}")
+            if not sql_query:
+                return self._create_error_response("Não consegui entender a consulta solicitada.")
             
-            # Executar consulta apropriada
-            if query_type == 'conversations':
-                return await self._get_conversation_stats()
-            elif query_type == 'messages':
-                return await self._get_message_stats()
-            elif query_type == 'general':
-                return await self._get_general_stats()
-            elif query_type == 'recent':
-                return await self._get_recent_activity()
-            else:
-                return await self._get_general_stats()
-                
+            print(f"📝 Query gerada: {sql_query}")
+            
+            # Executar query no Supabase
+            result = await self._execute_query(sql_query)
+            
+            # Processar e formatar resultado
+            return self._format_business_result(result, message, sql_query)
+            
         except Exception as e:
             print(f"❌ Erro no SQL Agent: {e}")
-            return {
-                'success': False,
-                'error': str(e),
-                'data': {},
-                'analysis': f'❌ **Erro na consulta**: {str(e)}'
-            }
-    
-    def _analyze_query_type(self, message: str) -> str:
+            return self._create_error_response(f"Erro ao processar consulta: {str(e)}")
+
+    def _generate_sql_query(self, message: str) -> str:
         """
-        Analisa o tipo de consulta baseado na mensagem
+        Gera query SQL baseada na mensagem do usuário
         """
         message_lower = message.lower()
         
-        if any(word in message_lower for word in ['conversa', 'conversas', 'sessão', 'sessões', 'session']):
-            return 'conversations'
-        elif any(word in message_lower for word in ['mensagem', 'mensagens', 'message', 'chat']):
-            return 'messages'
-        elif any(word in message_lower for word in ['recente', 'último', 'última', 'recent', 'atividade']):
-            return 'recent'
-        elif any(word in message_lower for word in ['geral', 'dashboard', 'resumo', 'overview', 'total']):
-            return 'general'
-        else:
-            return 'general'
-    
-    async def _get_conversation_stats(self) -> Dict:
+        # CLIENTES
+        if any(word in message_lower for word in ['quantos clientes', 'número de clientes', 'total de clientes']):
+            if 'ativo' in message_lower:
+                return "SELECT COUNT(*) as total FROM clientes WHERE status = 'ativo'"
+            elif 'inativo' in message_lower:
+                return "SELECT COUNT(*) as total FROM clientes WHERE status = 'inativo'"
+            else:
+                return "SELECT COUNT(*) as total FROM clientes"
+        
+        if any(word in message_lower for word in ['lista de clientes', 'dados dos clientes', 'clientes premium']):
+            if 'premium' in message_lower:
+                return """
+                SELECT c.nome, c.email, cl.nome as cluster, c.data_criacao 
+                FROM clientes c 
+                JOIN clusters cl ON c.cluster_id = cl.id 
+                WHERE cl.tipo = 'premium' 
+                ORDER BY c.data_criacao DESC 
+                LIMIT 20
+                """
+            else:
+                return """
+                SELECT c.nome, c.email, cl.nome as cluster, c.data_criacao 
+                FROM clientes c 
+                LEFT JOIN clusters cl ON c.cluster_id = cl.id 
+                ORDER BY c.data_criacao DESC 
+                LIMIT 20
+                """
+        
+        # PEDIDOS
+        if any(word in message_lower for word in ['quantos pedidos', 'número de pedidos', 'total de pedidos']):
+            if 'aberto' in message_lower or 'pendente' in message_lower:
+                return "SELECT COUNT(*) as total FROM pedidos WHERE status IN ('aberto', 'pendente')"
+            elif 'fechado' in message_lower or 'concluído' in message_lower:
+                return "SELECT COUNT(*) as total FROM pedidos WHERE status IN ('fechado', 'concluido')"
+            else:
+                return "SELECT COUNT(*) as total FROM pedidos"
+        
+        # RECEITA E FATURAMENTO
+        if any(word in message_lower for word in ['receita', 'faturamento', 'valor total', 'quanto faturamos']):
+            if 'mês' in message_lower or 'mensal' in message_lower:
+                return """
+                SELECT 
+                    DATE_TRUNC('month', data) as mes,
+                    SUM(valor) as receita_mensal,
+                    COUNT(*) as pedidos
+                FROM pedidos 
+                WHERE data >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '6 months')
+                GROUP BY DATE_TRUNC('month', data)
+                ORDER BY mes DESC
+                """
+            else:
+                return "SELECT SUM(valor) as receita_total, COUNT(*) as total_pedidos FROM pedidos"
+        
+        # TOP CLIENTES
+        if any(word in message_lower for word in ['top clientes', 'maiores clientes', 'ranking']):
+            return """
+            SELECT 
+                c.nome,
+                c.email,
+                SUM(p.valor) as valor_total,
+                COUNT(p.id) as total_pedidos
+            FROM clientes c
+            JOIN pedidos p ON c.id = p.cliente_id
+            GROUP BY c.id, c.nome, c.email
+            ORDER BY valor_total DESC
+            LIMIT 10
+            """
+        
+        # CLUSTERS
+        if any(word in message_lower for word in ['cluster', 'segmentação', 'categorias']):
+            return """
+            SELECT 
+                cl.nome as cluster,
+                cl.tipo,
+                COUNT(c.id) as total_clientes,
+                AVG(cl.valor_mensal) as valor_medio
+            FROM clusters cl
+            LEFT JOIN clientes c ON cl.id = c.cluster_id
+            GROUP BY cl.id, cl.nome, cl.tipo
+            ORDER BY total_clientes DESC
+            """
+        
+        # ANÁLISE MENSAL
+        if any(word in message_lower for word in ['dados mensais', 'série temporal', 'evolução']):
+            return """
+            SELECT 
+                mes,
+                AVG(valor) as valor_medio,
+                COUNT(*) as registros
+            FROM monthly_series
+            WHERE mes >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '12 months')
+            GROUP BY mes
+            ORDER BY mes DESC
+            """
+        
+        # RELATÓRIO GERAL
+        if any(word in message_lower for word in ['relatório', 'dashboard', 'resumo geral']):
+            return """
+            SELECT 
+                'clientes' as categoria,
+                COUNT(*) as total
+            FROM clientes
+            UNION ALL
+            SELECT 
+                'pedidos' as categoria,
+                COUNT(*) as total
+            FROM pedidos
+            UNION ALL
+            SELECT 
+                'receita_total' as categoria,
+                COALESCE(SUM(valor), 0) as total
+            FROM pedidos
+            """
+        
+        # Query não reconhecida
+        return None
+
+    async def _execute_query(self, sql_query: str) -> Dict:
         """
-        Consulta estatísticas de conversas
-        """
-        try:
-            print("📊 Consultando agent_conversations...")
-            conversations_data = await self._query_supabase('agent_conversations')
-            
-            if conversations_data is None:
-                return self._connection_error_response()
-            
-            if not conversations_data:
-                return self._no_data_response('conversations')
-            
-            total_conversations = len(conversations_data)
-            
-            # Análise temporal (se houver dados de data)
-            recent_conversations = 0
-            if conversations_data:
-                # Contar conversas recentes (últimas 24h seria ideal, mas vamos simular)
-                recent_conversations = min(5, total_conversations)
-            
-            analysis = f"""📊 **Estatísticas de Conversas**
-
-💬 **Total de Conversas**: {total_conversations}
-🆕 **Conversas Recentes**: {recent_conversations}
-📅 **Período**: Dados históricos completos
-
-📈 **Insights**:
-• Sistema registra {total_conversations} sessões únicas
-• Cada conversa tem um session_id único
-• Dados extraídos em tempo real do Supabase
-• Tabela: agent_conversations
-
-🔍 **Detalhes Técnicos**:
-• Consulta executada com sucesso
-• Dados atualizados automaticamente
-• Estrutura: UUID, session_id, timestamps"""
-
-            return {
-                'success': True,
-                'data': {
-                    'total_conversations': total_conversations,
-                    'recent_conversations': recent_conversations,
-                    'sample_data': conversations_data[:3] if len(conversations_data) > 0 else []
-                },
-                'analysis': analysis
-            }
-            
-        except Exception as e:
-            return self._error_response(f"Erro ao consultar conversas: {str(e)}")
-    
-    async def _get_message_stats(self) -> Dict:
-        """
-        Consulta estatísticas de mensagens
-        """
-        try:
-            print("📨 Consultando agent_messages...")
-            messages_data = await self._query_supabase('agent_messages')
-            
-            if messages_data is None:
-                return self._connection_error_response()
-            
-            if not messages_data:
-                return self._no_data_response('messages')
-            
-            total_messages = len(messages_data)
-            
-            # Contar por role
-            user_messages = len([m for m in messages_data if m.get('role') == 'user'])
-            assistant_messages = len([m for m in messages_data if m.get('role') == 'assistant'])
-            system_messages = len([m for m in messages_data if m.get('role') == 'system'])
-            
-            # Calcular percentuais
-            user_pct = (user_messages/total_messages*100) if total_messages > 0 else 0
-            assistant_pct = (assistant_messages/total_messages*100) if total_messages > 0 else 0
-            
-            analysis = f"""📨 **Estatísticas de Mensagens**
-
-💬 **Total de Mensagens**: {total_messages}
-👤 **Mensagens de Usuários**: {user_messages} ({user_pct:.1f}%)
-🤖 **Respostas do Sistema**: {assistant_messages} ({assistant_pct:.1f}%)
-⚙️ **Mensagens do Sistema**: {system_messages}
-
-📊 **Distribuição**:
-• Interação balanceada entre usuário e sistema
-• Cada mensagem tem role, content e timestamp
-• Dados organizados por session_id
-
-📈 **Insights**:
-• Sistema processou {total_messages} mensagens
-• Taxa de resposta: {(assistant_messages/user_messages*100) if user_messages > 0 else 0:.1f}%
-• Dados extraídos em tempo real do Supabase
-• Tabela: agent_messages
-
-🔍 **Estrutura**:
-• BIGSERIAL id, session_id, role, content
-• Timestamps automáticos
-• Metadata JSONB para extensibilidade"""
-
-            return {
-                'success': True,
-                'data': {
-                    'total_messages': total_messages,
-                    'user_messages': user_messages,
-                    'assistant_messages': assistant_messages,
-                    'system_messages': system_messages,
-                    'recent_messages': messages_data[-3:] if len(messages_data) >= 3 else messages_data
-                },
-                'analysis': analysis
-            }
-            
-        except Exception as e:
-            return self._error_response(f"Erro ao consultar mensagens: {str(e)}")
-    
-    async def _get_general_stats(self) -> Dict:
-        """
-        Consulta estatísticas gerais do sistema
+        Executa query no Supabase e retorna resultado
         """
         try:
-            print("📊 Consultando estatísticas gerais...")
-            
-            # Consultar ambas as tabelas
-            conversations_data = await self._query_supabase('agent_conversations')
-            messages_data = await self._query_supabase('agent_messages')
-            
-            if conversations_data is None or messages_data is None:
-                return self._connection_error_response()
-            
-            total_conversations = len(conversations_data) if conversations_data else 0
-            total_messages = len(messages_data) if messages_data else 0
-            
-            # Calcular métricas
-            avg_messages_per_conversation = (total_messages / total_conversations) if total_conversations > 0 else 0
-            
-            # Análise de atividade
-            user_messages = len([m for m in messages_data if m.get('role') == 'user']) if messages_data else 0
-            assistant_messages = len([m for m in messages_data if m.get('role') == 'assistant']) if messages_data else 0
-            
-            analysis = f"""📊 **Dashboard Geral do Sistema**
-
-💬 **Conversas Totais**: {total_conversations}
-📨 **Mensagens Totais**: {total_messages}
-📈 **Média por Conversa**: {avg_messages_per_conversation:.1f} mensagens
-
-🎯 **Performance do Sistema**:
-• Sistema ativo e funcional
-• Dados em tempo real do Supabase
-• Histórico completo preservado
-• Arquitetura modular funcionando
-
-📊 **Distribuição de Mensagens**:
-• Usuários: {user_messages} mensagens
-• Sistema: {assistant_messages} respostas
-• Média de {avg_messages_per_conversation:.1f} mensagens por conversa
-
-🔧 **Infraestrutura**:
-• PostgreSQL via Supabase
-• REST API funcionando
-• Tabelas: agent_conversations, agent_messages
-• Dados estruturados e organizados
-
-📈 **Insights**:
-• Sistema registra todas as interações
-• Cada conversa tem session_id único
-• Mensagens categorizadas por role
-• Timestamps automáticos para auditoria
-
-🔗 **Fonte**: Consulta em tempo real às tabelas do Supabase"""
-
-            return {
-                'success': True,
-                'data': {
-                    'total_conversations': total_conversations,
-                    'total_messages': total_messages,
-                    'avg_messages_per_conversation': round(avg_messages_per_conversation, 2),
-                    'user_messages': user_messages,
-                    'assistant_messages': assistant_messages
-                },
-                'analysis': analysis
-            }
-            
-        except Exception as e:
-            return self._error_response(f"Erro ao consultar dados gerais: {str(e)}")
-    
-    async def _get_recent_activity(self) -> Dict:
-        """
-        Consulta atividade recente do sistema
-        """
-        try:
-            print("🕒 Consultando atividade recente...")
-            
-            # Consultar mensagens (mais recentes primeiro)
-            messages_data = await self._query_supabase('agent_messages', order='timestamp.desc', limit=10)
-            
-            if messages_data is None:
-                return self._connection_error_response()
-            
-            if not messages_data:
-                return self._no_data_response('recent_activity')
-            
-            recent_count = len(messages_data)
-            
-            # Analisar atividade recente
-            recent_sessions = set()
-            recent_users = 0
-            recent_system = 0
-            
-            for msg in messages_data:
-                if msg.get('session_id'):
-                    recent_sessions.add(msg.get('session_id'))
-                if msg.get('role') == 'user':
-                    recent_users += 1
-                elif msg.get('role') == 'assistant':
-                    recent_system += 1
-            
-            analysis = f"""🕒 **Atividade Recente do Sistema**
-
-📨 **Últimas {recent_count} Mensagens**:
-• 👤 Usuários: {recent_users} mensagens
-• 🤖 Sistema: {recent_system} respostas
-• 💬 Sessões ativas: {len(recent_sessions)}
-
-📊 **Resumo da Atividade**:
-• Sistema processando mensagens ativamente
-• Múltiplas sessões simultâneas
-• Respostas automáticas funcionando
-
-🔍 **Últimas Interações**:"""
-
-            # Adicionar detalhes das últimas mensagens
-            for i, msg in enumerate(messages_data[:3]):
-                role_emoji = "👤" if msg.get('role') == 'user' else "🤖"
-                content_preview = msg.get('content', '')[:50] + "..." if len(msg.get('content', '')) > 50 else msg.get('content', '')
-                analysis += f"\n• {role_emoji} {content_preview}"
-            
-            analysis += f"""
-
-📈 **Status**:
-• Sistema operacional
-• Dados atualizados em tempo real
-• Consulta executada com sucesso
-
-🔗 **Fonte**: Últimas entradas da tabela agent_messages"""
-
-            return {
-                'success': True,
-                'data': {
-                    'recent_messages_count': recent_count,
-                    'recent_sessions': len(recent_sessions),
-                    'recent_user_messages': recent_users,
-                    'recent_system_messages': recent_system,
-                    'latest_messages': messages_data[:5]
-                },
-                'analysis': analysis
-            }
-            
-        except Exception as e:
-            return self._error_response(f"Erro ao consultar atividade recente: {str(e)}")
-    
-    async def _query_supabase(self, table: str, order: str = None, limit: int = None) -> List[Dict]:
-        """
-        Executa consulta no Supabase via REST API
-        """
-        try:
-            if not self.supabase_url or not self.supabase_key:
-                print("❌ Configuração Supabase não encontrada")
-                return None
-            
-            url = f"{self.supabase_url}/rest/v1/{table}"
-            
-            # Adicionar parâmetros de query
-            params = {}
-            if order:
-                params['order'] = order
-            if limit:
-                params['limit'] = str(limit)
-            
+            # Configurar headers
             headers = {
-                'apikey': self.supabase_key,
-                'Authorization': f'Bearer {self.supabase_key}',
-                'Content-Type': 'application/json'
+                "apikey": self.supabase_key,
+                "Authorization": f"Bearer {self.supabase_key}",
+                "Content-Type": "application/json"
             }
             
-            print(f"🔗 Consultando: {url}")
-            
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(url, headers=headers, params=params)
+            # Executar query via RPC (se disponível) ou REST API
+            async with httpx.AsyncClient() as client:
+                # Tentar usar RPC para queries complexas
+                rpc_payload = {
+                    "query": sql_query
+                }
                 
-                print(f"📡 Status: {response.status_code}")
+                response = await client.post(
+                    f"{self.supabase_url}/rest/v1/rpc/execute_sql",
+                    headers=headers,
+                    json=rpc_payload,
+                    timeout=30.0
+                )
+                
+                if response.status_code == 200:
+                    return {"success": True, "data": response.json()}
+                else:
+                    # Fallback: tentar query simples via REST
+                    return await self._execute_simple_query(sql_query, headers, client)
+                    
+        except Exception as e:
+            print(f"❌ Erro ao executar query: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def _execute_simple_query(self, sql_query: str, headers: Dict, client) -> Dict:
+        """
+        Fallback para queries simples via REST API
+        """
+        try:
+            # Detectar tipo de query e tabela
+            if "FROM clientes" in sql_query:
+                table = "clientes"
+            elif "FROM pedidos" in sql_query:
+                table = "pedidos"
+            elif "FROM clusters" in sql_query:
+                table = "clusters"
+            elif "FROM monthly_series" in sql_query:
+                table = "monthly_series"
+            else:
+                return {"success": False, "error": "Tabela não identificada"}
+            
+            # Query simples de contagem
+            if "COUNT(*)" in sql_query and "WHERE" not in sql_query:
+                response = await client.get(
+                    f"{self.supabase_url}/rest/v1/{table}?select=*",
+                    headers=headers
+                )
                 
                 if response.status_code == 200:
                     data = response.json()
-                    print(f"✅ Dados recebidos: {len(data)} registros")
-                    return data
-                else:
-                    print(f"❌ Erro Supabase: {response.status_code}")
-                    print(f"📄 Response: {response.text}")
-                    return []
-                    
-        except httpx.TimeoutException:
-            print("⏱️ Timeout na consulta Supabase")
-            return None
+                    return {"success": True, "data": [{"total": len(data)}]}
+            
+            # Query de listagem simples
+            response = await client.get(
+                f"{self.supabase_url}/rest/v1/{table}?select=*&limit=20",
+                headers=headers
+            )
+            
+            if response.status_code == 200:
+                return {"success": True, "data": response.json()}
+            else:
+                return {"success": False, "error": f"HTTP {response.status_code}"}
+                
         except Exception as e:
-            print(f"❌ Erro na consulta Supabase: {e}")
-            return None
-    
-    def _config_error_response(self) -> Dict:
-        """Resposta quando configuração está incorreta"""
-        return {
-            'success': False,
-            'error': 'Configuração Supabase não encontrada',
-            'data': {},
-            'analysis': """⚙️ **Erro de Configuração**
+            return {"success": False, "error": str(e)}
 
-❌ **Problema**: Variáveis de ambiente do Supabase não configuradas
+    def _format_business_result(self, result: Dict, original_message: str, sql_query: str) -> str:
+        """
+        Formata resultado em JSON estruturado para o Orquestrador
+        """
+        try:
+            if not result.get("success"):
+                return self._create_error_response(result.get("error", "Erro desconhecido"))
+            
+            data = result.get("data", [])
+            
+            # Gerar resumo baseado nos dados
+            resumo = self._generate_summary(data, original_message)
+            
+            # Gerar insights
+            insights = self._generate_insights(data, original_message)
+            
+            # Criar resposta JSON estruturada
+            response = {
+                "query": sql_query,
+                "resultado": data,
+                "resumo": resumo,
+                "insights": insights,
+                "timestamp": datetime.now().isoformat(),
+                "total_registros": len(data) if isinstance(data, list) else 1
+            }
+            
+            return json.dumps(response, ensure_ascii=False, indent=2)
+            
+        except Exception as e:
+            print(f"❌ Erro ao formatar resultado: {e}")
+            return self._create_error_response(f"Erro ao formatar resultado: {str(e)}")
 
-🔧 **Necessário**:
-• SUPABASE_URL
-• SUPABASE_ANON_KEY
+    def _generate_summary(self, data: List, message: str) -> str:
+        """
+        Gera resumo baseado nos dados retornados
+        """
+        if not data:
+            return "Nenhum dado encontrado para a consulta"
+        
+        message_lower = message.lower()
+        
+        if 'cliente' in message_lower:
+            if isinstance(data[0], dict) and 'total' in data[0]:
+                return f"Total de {data[0]['total']} clientes encontrados"
+            else:
+                return f"{len(data)} clientes encontrados"
+        
+        elif 'pedido' in message_lower:
+            if isinstance(data[0], dict) and 'total' in data[0]:
+                return f"Total de {data[0]['total']} pedidos encontrados"
+            else:
+                return f"{len(data)} pedidos encontrados"
+        
+        elif 'receita' in message_lower or 'faturamento' in message_lower:
+            if isinstance(data[0], dict) and 'receita_total' in data[0]:
+                return f"Receita total: R$ {data[0]['receita_total']:,.2f}"
+            else:
+                return "Análise de receita concluída"
+        
+        else:
+            return f"Análise concluída - {len(data)} registros encontrados"
 
-💡 **Solução**: Configure as variáveis no Railway/ambiente de deploy
+    def _generate_insights(self, data: List, message: str) -> List[str]:
+        """
+        Gera insights baseados nos dados
+        """
+        insights = []
+        
+        if not data:
+            insights.append("Nenhum dado disponível para análise")
+            return insights
+        
+        message_lower = message.lower()
+        
+        # Insights para clientes
+        if 'cliente' in message_lower:
+            if isinstance(data[0], dict) and 'total' in data[0]:
+                total = data[0]['total']
+                if total > 100:
+                    insights.append("Base de clientes robusta com mais de 100 registros")
+                elif total > 50:
+                    insights.append("Base de clientes em crescimento")
+                else:
+                    insights.append("Oportunidade de expansão da base de clientes")
+        
+        # Insights para receita
+        elif 'receita' in message_lower:
+            insights.append("Dados de receita atualizados em tempo real")
+            insights.append("Recomenda-se análise mensal para identificar tendências")
+        
+        # Insights gerais
+        else:
+            insights.append("Dados extraídos diretamente do Lovable Cloud")
+            insights.append("Informações atualizadas em tempo real")
+        
+        return insights
 
-🔗 **Projeto**: RodrigoPortoBR/agente-simples"""
+    def _create_error_response(self, error_message: str) -> str:
+        """
+        Cria resposta de erro em formato JSON
+        """
+        response = {
+            "query": None,
+            "resultado": [],
+            "resumo": f"Erro: {error_message}",
+            "insights": ["Verifique a consulta e tente novamente"],
+            "timestamp": datetime.now().isoformat(),
+            "total_registros": 0,
+            "error": True
         }
-    
-    def _connection_error_response(self) -> Dict:
-        """Resposta quando há erro de conexão"""
-        return {
-            'success': False,
-            'error': 'Erro de conexão com Supabase',
-            'data': {},
-            'analysis': """🔌 **Erro de Conexão**
+        
+        return json.dumps(response, ensure_ascii=False, indent=2)
 
-❌ **Problema**: Não foi possível conectar ao Supabase
+    @staticmethod
+    def get_sql_agent():
+        return SQLAgent()
 
-🔧 **Possíveis causas**:
-• Timeout na conexão
-• URL ou chave incorretas
-• Supabase temporariamente indisponível
-
-💡 **Sugestão**: Tente novamente em alguns instantes
-
-🔗 **Projeto**: RodrigoPortoBR/agente-simples"""
-        }
-    
-    def _no_data_response(self, data_type: str) -> Dict:
-        """Resposta quando não há dados"""
-        return {
-            'success': True,
-            'data': {},
-            'analysis': f"""📊 **Sistema Inicializado - Sem Dados de {data_type.title()}**
-
-ℹ️ **Status**: Banco de dados configurado e acessível
-🔧 **Situação**: Tabelas criadas mas ainda sem registros
-📈 **Próximos passos**: Dados serão coletados conforme uso do sistema
-
-✅ **Conexão**: Supabase funcionando corretamente
-🔗 **Fonte**: Consulta em tempo real ao Supabase
-
-💡 **Dica**: Use o sistema para gerar dados que poderão ser analisados!"""
-        }
-    
-    def _error_response(self, error_msg: str) -> Dict:
-        """Resposta de erro padronizada"""
-        return {
-            'success': False,
-            'error': error_msg,
-            'data': {},
-            'analysis': f"""❌ **Erro na Consulta SQL**
-
-🔧 **Detalhes**: {error_msg}
-
-💡 **Sugestões**:
-• Verifique a conectividade com Supabase
-• Confirme se as tabelas existem
-• Tente uma consulta mais simples
-
-🔗 **Projeto**: RodrigoPortoBR/agente-simples"""
-        }
-
+# Função para compatibilidade
 def get_sql_agent():
-    """Factory function para criar instância do SQL Agent"""
     return SQLAgent()
