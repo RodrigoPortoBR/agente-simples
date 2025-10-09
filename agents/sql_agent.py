@@ -15,7 +15,7 @@ class SQLAgent:
     
     RESPONSABILIDADES:
     - Executar queries nas tabelas: clientes, clusters, pedidos, monthly_series
-    - Retornar dados de NEGÓCIO (receita, margem bruta, margem contribuicao cliente, clientes, pedidos, etc)
+    - Retornar dados de NEGÓCIO (receita, margem, clientes)
     - NÃO tem lógica de negócio
     - NÃO interpreta linguagem natural
     
@@ -233,14 +233,210 @@ class SQLAgent:
                 
                 # Metadados
                 aggregated["total_registros"] = len(raw_data)
-            return SQLQueryResult(
-                success=True,
-                data=[aggregated],
-                row_count=len(raw_data),
-                query_info={"url": url, "method": "aggregate", "table": request.table}
-            )
+                if request.filters:
+                    aggregated["filtros_aplicados"] = request.filters
+                
+                return SQLQueryResult(
+                    success=True,
+                    data=[aggregated],
+                    row_count=1,
+                    query_info={
+                        "url": url,
+                        "method": "aggregate_manual",
+                        "table": request.table,
+                        "raw_count": len(raw_data)
+                    }
+                )
+                
         except Exception as e:
             return SQLQueryResult(
                 success=False,
-                error=f"Erro ao executar agregação: {str(e)}"
+                error=f"Erro na agregação: {str(e)}"
             )
+    
+    async def _execute_count(self, request: SQLQueryRequest) -> SQLQueryResult:
+        """Conta registros com filtros"""
+        try:
+            url = f"{self.supabase_url}/rest/v1/{request.table}"
+            params = ["select=id"]
+            
+            # Aplicar filtros
+            if request.filters:
+                for field, value in request.filters.items():
+                    if field in self.table_schemas[request.table]:
+                        params.append(f"{field}=eq.{value}")
+            
+            if params:
+                url += "?" + "&".join(params)
+            
+            print(f"🔗 Count Query URL: {url}")
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    url,
+                    headers=self.headers,
+                    timeout=settings.REQUEST_TIMEOUT
+                )
+                
+                if response.status_code != 200:
+                    return SQLQueryResult(
+                        success=False,
+                        error=f"API Error {response.status_code}: {response.text}"
+                    )
+                
+                data = response.json()
+                count = len(data)
+                
+                result = {
+                    "total": count,
+                    "tabela": request.table
+                }
+                
+                if request.filters:
+                    result["filtros_aplicados"] = request.filters
+                
+                return SQLQueryResult(
+                    success=True,
+                    data=[result],
+                    row_count=1,
+                    query_info={"url": url, "method": "count", "table": request.table}
+                )
+                
+        except Exception as e:
+            return SQLQueryResult(
+                success=False,
+                error=f"Erro na contagem: {str(e)}"
+            )
+    
+    async def _execute_select(self, request: SQLQueryRequest) -> SQLQueryResult:
+        """Seleciona registros com ordenação e limite"""
+        try:
+            url = f"{self.supabase_url}/rest/v1/{request.table}"
+            params = []
+            
+            # Campos a selecionar (validar se existem)
+            if request.fields:
+                valid_fields = [
+                    f for f in request.fields 
+                    if f in self.table_schemas[request.table]
+                ]
+                if valid_fields:
+                    params.append(f"select={','.join(valid_fields)}")
+                else:
+                    params.append("select=*")
+            else:
+                params.append("select=*")
+            
+            # Filtros
+            if request.filters:
+                for field, value in request.filters.items():
+                    if field in self.table_schemas[request.table]:
+                        params.append(f"{field}=eq.{value}")
+            
+            # Ordenação
+            if request.order_by:
+                params.append(f"order={request.order_by}")
+            
+            # Limite
+            if request.limit:
+                params.append(f"limit={request.limit}")
+            
+            if params:
+                url += "?" + "&".join(params)
+            
+            print(f"🔗 Select Query URL: {url}")
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    url,
+                    headers=self.headers,
+                    timeout=settings.REQUEST_TIMEOUT
+                )
+                
+                if response.status_code != 200:
+                    return SQLQueryResult(
+                        success=False,
+                        error=f"API Error {response.status_code}: {response.text}"
+                    )
+                
+                data = response.json()
+                
+                return SQLQueryResult(
+                    success=True,
+                    data=data,
+                    row_count=len(data),
+                    query_info={
+                        "url": url,
+                        "method": "select",
+                        "table": request.table
+                    }
+                )
+                
+        except Exception as e:
+            return SQLQueryResult(
+                success=False,
+                error=f"Erro no select: {str(e)}"
+            )
+    
+    async def _execute_filter(self, request: SQLQueryRequest) -> SQLQueryResult:
+        """Filtra registros (redirecionado para select)"""
+        return await self._execute_select(request)
+    
+    def get_table_schema(self, table_name: str) -> Dict[str, str]:
+        """
+        Retorna schema de uma tabela
+        
+        Args:
+            table_name: Nome da tabela
+        
+        Returns:
+            Dicionário com colunas e tipos
+        """
+        return self.table_schemas.get(table_name, {})
+    
+    def get_available_tables(self) -> List[str]:
+        """Retorna lista de tabelas disponíveis"""
+        return list(self.table_schemas.keys())
+    
+    def validate_query(self, query_request: SQLQueryRequest) -> Dict[str, Any]:
+        """
+        Valida uma query antes de executar
+        
+        Args:
+            query_request: Requisição de query
+        
+        Returns:
+            Dicionário com validação
+        """
+        errors = []
+        warnings = []
+        
+        # Validar tabela
+        if query_request.table not in self.table_schemas:
+            errors.append(f"Tabela '{query_request.table}' não existe")
+        else:
+            schema = self.table_schemas[query_request.table]
+            
+            # Validar campos
+            if query_request.fields:
+                for field in query_request.fields:
+                    if field not in schema:
+                        warnings.append(f"Campo '{field}' não existe na tabela")
+            
+            # Validar filtros
+            if query_request.filters:
+                for field in query_request.filters.keys():
+                    if field not in schema:
+                        warnings.append(f"Filtro em campo '{field}' que não existe")
+            
+            # Validar agregações
+            if query_request.aggregation:
+                for field in query_request.aggregation.keys():
+                    if field not in schema:
+                        warnings.append(f"Agregação em campo '{field}' que não existe")
+        
+        return {
+            "valid": len(errors) == 0,
+            "errors": errors,
+            "warnings": warnings
+        }
