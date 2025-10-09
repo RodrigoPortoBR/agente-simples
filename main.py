@@ -200,7 +200,10 @@ async def lovable_webhook(request: Request):
         
         # DELEGAR AO ORQUESTRADOR (único ponto de entrada)
         print(f"🚀 Delegando ao Orquestrador...")
-        result = await orchestrator.process_user_message(user_message, session_id)
+        result = await orchestrator.process_user_message(
+    user_message,  # ← SEM "message="
+    session_id
+)
         
         print(f"✅ Resposta gerada: {result.response[:100]}...")
         
