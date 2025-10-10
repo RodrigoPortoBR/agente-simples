@@ -6,7 +6,7 @@ Arquitetura modular com Orchestrator + Agents especializados
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from datetime import import datetime
+from datetime import datetime
 import os
 import uvicorn
 import json
