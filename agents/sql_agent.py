@@ -435,8 +435,10 @@ class SQLAgent:
                     if field not in schema:
                         warnings.append(f"Agregação em campo '{field}' que não existe")
         
-    return {
-        "valid": len(errors) == 0,
-        "errors": errors,
-        "warnings": warnings
-    }
+        return {
+            "valid": len(errors) == 0,
+            "errors": errors,
+            "warnings": warnings
+        }
+
+                
