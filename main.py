@@ -39,18 +39,10 @@ origins = [
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,  # ❌ não use "*"
-    allow_credentials=True,  # Permite cookies/autenticação
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],  # Inclui OPTIONS
-    allow_headers=[
-        "Authorization",
-        "Content-Type",
-        "Accept",
-        "Origin",
-        "User-Agent",
-        "X-Requested-With",
-    ],
-    expose_headers=["Content-Disposition"],  # opcional: p/ download de arquivos
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Instância global do Orquestrador
@@ -107,18 +99,6 @@ def health_check():
 # ENDPOINT PRINCIPAL (WEBHOOK)
 # ===================================
 
-@app.options("/webhook/lovable")
-async def options_webhook():
-    """Handler para CORS preflight (OPTIONS)"""
-    return JSONResponse(
-        content={"message": "CORS preflight OK"},
-        headers={
-            "Access-Control-Allow-Origin": "https://app.lovable.dev",
-            "Access-Control-Allow-Methods": "POST, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization",
-        }
-    )
-
 @app.post("/webhook/lovable")
 async def lovable_webhook(request: Request):
     """
@@ -127,21 +107,17 @@ async def lovable_webhook(request: Request):
     Recebe mensagens do chat e processa via Orchestrator Agent
     """
     try:
-        # Processar dados da requisição
         content_type = request.headers.get("content-type", "")
         
         if "application/json" in content_type:
             data = await request.json()
         else:
-            # Suporte para form data também
             form_data = await request.form()
             data = dict(form_data)
         
-        # Extrair mensagem e session_id
         message = data.get("message", "").strip()
         session_id = data.get("sessionId") or f"lovable_session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        
-        # Validação básica
+
         if not message:
             return {
                 "response": "❌ Mensagem não fornecida. Por favor, envie uma mensagem para que eu possa ajudar!",
@@ -149,44 +125,26 @@ async def lovable_webhook(request: Request):
                 "timestamp": datetime.now().isoformat(),
                 "success": False,
                 "error": "Campo 'message' é obrigatório",
-                "github_integration": {
-                    "project": "RodrigoPortoBR/agente-simples",
-                    "version": "1.0",
-                    "architecture": "minimalista"
-                }
             }
         
-        # Chamar o Orquestrador
+        # Processa via Orquestrador
         result = await orchestrator.process_user_message(message, session_id)
         
-        # Retornar resposta estruturada
         return {
             "response": result.response,
             "session_id": result.session_id,
             "timestamp": datetime.now().isoformat(),
             "success": result.success,
-            "github_integration": {
-                "project": "RodrigoPortoBR/agente-simples",
-                "version": "1.0",
-                "architecture": "minimalista"
-            }
         }
         
     except Exception as e:
-        # Log do erro para debug
         print(f"❌ Erro no webhook/lovable: {str(e)}")
-        
         return {
             "response": f"❌ Erro ao processar: {str(e)}",
             "session_id": session_id if 'session_id' in locals() else f"error_session_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
             "timestamp": datetime.now().isoformat(),
             "success": False,
             "error": str(e),
-            "github_integration": {
-                "project": "RodrigoPortoBR/agente-simples",
-                "version": "1.0",
-                "architecture": "minimalista"
-            }
         }
 
 # ===================================
@@ -200,7 +158,6 @@ async def webhook_generic(payload: WebhookPayload):
     Redireciona para o endpoint principal
     """
     try:
-        # Chamar o Orquestrador
         result = await orchestrator.process_user_message(
             payload.message, 
             payload.session_id or f"generic_session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -226,6 +183,6 @@ if __name__ == "__main__":
         "main:app",
         host="0.0.0.0",
         port=port,
-        reload=False,  # Desabilitado em produção
+        reload=False,
         log_level="info"
     )
