@@ -423,20 +423,22 @@ class SQLAgent:
                     if field not in schema:
                         warnings.append(f"Campo '{field}' não existe na tabela")
             
-        # Validar filtros
-        if query_request.filters:
-            for field in query_request.filters.keys():
-                if field not in schema:
-                    warnings.append(f"Filtro em campo '{field}' que não existe")
+            # Validar filtros
+            if query_request.filters:
+                for field in query_request.filters.keys():
+                    if field not in schema:
+                        warnings.append(f"Filtro em campo '{field}' que não existe")
+            
+            # Validar agregações
+            if query_request.aggregation:
+                for field in query_request.aggregation.keys():
+                    if field not in schema:
+                        warnings.append(f"Agregação em campo '{field}' que não existe")
         
-    # Validar agregações
-    if query_request.aggregation:
-        for field in query_request.aggregation.keys():
-            if field not in schema:
-                warnings.append(f"Agregação em campo '{field}' que não existe")
-    
-    return {
-        "valid": len(errors) == 0,
-        "errors": errors,
-        "warnings": warnings
-    }
+        return {
+            "valid": len(errors) == 0,
+            "errors": errors,
+            "warnings": warnings
+        }
+
+                
