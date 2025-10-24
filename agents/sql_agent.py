@@ -104,16 +104,47 @@ class SQLAgent:
         start_time = datetime.now()
         
         try:
+            # Log detalhado da instrução recebida
+            print(f"\n🔍 SQL AGENT RECEBEU:")
+            print(f"   Task: {instruction.task_description}")
+            print(f"   Parameters: {json.dumps(instruction.parameters, indent=2)}")
+            print(f"   Context: {instruction.context}")
+            
             # Extrair parâmetros
             query_request = SQLQueryRequest(**instruction.parameters)
             
+            # Log da query request
+            print(f"\n📋 QUERY REQUEST:")
+            print(f"   Type: {query_request.query_type}")
+            print(f"   Table: {query_request.table}")
+            print(f"   Filters: {query_request.filters}")
+            print(f"   Fields: {query_request.fields}")
+            print(f"   Aggregation: {query_request.aggregation}")
+            
             # Validar tabela
             if query_request.table not in self.table_schemas:
+                error_msg = f"Tabela inválida: {query_request.table}. Disponíveis: {list(self.table_schemas.keys())}"
+                print(f"❌ {error_msg}")
                 return AgentResponse(
                     success=False,
                     agent_type=AgentType.SQL,
-                    error=f"Tabela inválida: {query_request.table}. Disponíveis: {list(self.table_schemas.keys())}"
+                    error=error_msg
                 )
+            
+            # Validar e normalizar filtros
+            if query_request.filters:
+                normalized_filters = {}
+                schema = self.table_schemas[query_request.table]
+                
+                for key, value in query_request.filters.items():
+                    if key not in schema:
+                        print(f"⚠️ Campo '{key}' não existe na tabela {query_request.table}")
+                        print(f"   Campos disponíveis: {list(schema.keys())}")
+                        # Continuar mesmo assim, Supabase vai retornar vazio se campo não existir
+                    normalized_filters[key] = value
+                
+                query_request.filters = normalized_filters
+                print(f"✅ Filtros normalizados: {normalized_filters}")
             
             # Executar query baseado no tipo
             if query_request.query_type == "aggregate":
@@ -125,12 +156,24 @@ class SQLAgent:
             elif query_request.query_type == "filter":
                 result = await self._execute_filter(query_request)
             else:
+                error_msg = f"Tipo não suportado: {query_request.query_type}"
+                print(f"❌ {error_msg}")
                 result = SQLQueryResult(
                     success=False,
-                    error=f"Tipo não suportado: {query_request.query_type}"
+                    error=error_msg
                 )
             
             execution_time = (datetime.now() - start_time).total_seconds()
+            
+            # Log do resultado
+            print(f"\n✅ RESULTADO:")
+            print(f"   Success: {result.success}")
+            print(f"   Row count: {result.row_count}")
+            print(f"   Execution time: {execution_time:.2f}s")
+            if result.data:
+                print(f"   Data preview: {json.dumps(result.data[:1] if isinstance(result.data, list) else result.data, indent=2)[:200]}...")
+            if result.error:
+                print(f"   Error: {result.error}")
             
             return AgentResponse(
                 success=result.success,
@@ -142,14 +185,18 @@ class SQLAgent:
                     "execution_time": execution_time,
                     "query_info": result.query_info,
                     "query_type": query_request.query_type,
-                    "table": query_request.table
+                    "table": query_request.table,
+                    "filters_applied": query_request.filters
                 },
                 execution_time=execution_time
             )
             
         except Exception as e:
             execution_time = (datetime.now() - start_time).total_seconds()
-            print(f"❌ Erro no SQL Agent: {e}")
+            print(f"\n❌ ERRO NO SQL AGENT: {e}")
+            print(f"   Tipo: {type(e).__name__}")
+            import traceback
+            print(f"   Traceback: {traceback.format_exc()}")
             
             return AgentResponse(
                 success=False,
@@ -440,5 +487,3 @@ class SQLAgent:
             "errors": errors,
             "warnings": warnings
         }
-
-                
