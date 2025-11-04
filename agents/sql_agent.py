@@ -3,7 +3,6 @@ SQL Agent - REFATORADO PARA DADOS DE NEGÓCIO
 CAMADA 2: Executor de queries nas tabelas: clientes, clusters, pedidos, monthly_series
 """
 import httpx
-import json # <--- CORREÇÃO APLICADA: Importar a biblioteca json
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
@@ -105,47 +104,16 @@ class SQLAgent:
         start_time = datetime.now()
         
         try:
-            # Log detalhado da instrução recebida
-            print(f"\n🔍 SQL AGENT RECEBEU:")
-            print(f"   Task: {instruction.task_description}")
-            print(f"   Parameters: {json.dumps(instruction.parameters, indent=2)}")
-            print(f"   Context: {instruction.context}")
-            
             # Extrair parâmetros
             query_request = SQLQueryRequest(**instruction.parameters)
             
-            # Log da query request
-            print(f"\n📋 QUERY REQUEST:")
-            print(f"   Type: {query_request.query_type}")
-            print(f"   Table: {query_request.table}")
-            print(f"   Filters: {query_request.filters}")
-            print(f"   Fields: {query_request.fields}")
-            print(f"   Aggregation: {query_request.aggregation}")
-            
             # Validar tabela
             if query_request.table not in self.table_schemas:
-                error_msg = f"Tabela inválida: {query_request.table}. Disponíveis: {list(self.table_schemas.keys())}"
-                print(f"❌ {error_msg}")
                 return AgentResponse(
                     success=False,
                     agent_type=AgentType.SQL,
-                    error=error_msg
+                    error=f"Tabela inválida: {query_request.table}. Disponíveis: {list(self.table_schemas.keys())}"
                 )
-            
-            # Validar e normalizar filtros
-            if query_request.filters:
-                normalized_filters = {}
-                schema = self.table_schemas[query_request.table]
-                
-                for key, value in query_request.filters.items():
-                    if key not in schema:
-                        print(f"⚠️ Campo '{key}' não existe na tabela {query_request.table}")
-                        print(f"   Campos disponíveis: {list(schema.keys())}")
-                        # Continuar mesmo assim, Supabase vai retornar vazio se campo não existir
-                    normalized_filters[key] = value
-                
-                query_request.filters = normalized_filters
-                print(f"✅ Filtros normalizados: {normalized_filters}")
             
             # Executar query baseado no tipo
             if query_request.query_type == "aggregate":
@@ -157,24 +125,12 @@ class SQLAgent:
             elif query_request.query_type == "filter":
                 result = await self._execute_filter(query_request)
             else:
-                error_msg = f"Tipo não suportado: {query_request.query_type}"
-                print(f"❌ {error_msg}")
                 result = SQLQueryResult(
                     success=False,
-                    error=error_msg
+                    error=f"Tipo não suportado: {query_request.query_type}"
                 )
             
             execution_time = (datetime.now() - start_time).total_seconds()
-            
-            # Log do resultado
-            print(f"\n✅ RESULTADO:")
-            print(f"   Success: {result.success}")
-            print(f"   Row count: {result.row_count}")
-            print(f"   Execution time: {execution_time:.2f}s")
-            if result.data:
-                print(f"   Data preview: {json.dumps(result.data[:1] if isinstance(result.data, list) else result.data, indent=2)[:200]}...")
-            if result.error:
-                print(f"   Error: {result.error}")
             
             return AgentResponse(
                 success=result.success,
@@ -186,18 +142,14 @@ class SQLAgent:
                     "execution_time": execution_time,
                     "query_info": result.query_info,
                     "query_type": query_request.query_type,
-                    "table": query_request.table,
-                    "filters_applied": query_request.filters
+                    "table": query_request.table
                 },
                 execution_time=execution_time
             )
             
         except Exception as e:
             execution_time = (datetime.now() - start_time).total_seconds()
-            print(f"\n❌ ERRO NO SQL AGENT: {e}")
-            print(f"   Tipo: {type(e).__name__}")
-            import traceback
-            print(f"   Traceback: {traceback.format_exc()}")
+            print(f"❌ Erro no SQL Agent: {e}")
             
             return AgentResponse(
                 success=False,
@@ -260,118 +212,140 @@ class SQLAgent:
                 
                 for field, agg_type in request.aggregation.items():
                     values = [
-                        float(item.get(field, 0)) for item in raw_data if item.get(field) is not None
+                        float(item[field]) if item.get(field) is not None else 0
+                        for item in raw_data
+                        if item.get(field) is not None
                     ]
                     
-                    if agg_type.lower() == 'sum':
-                        aggregated[f'{field}_sum'] = sum(values)
-                    elif agg_type.lower() == 'avg':
-                        aggregated[f'{field}_avg'] = sum(values) / len(values) if values else 0
-                    elif agg_type.lower() == 'count':
-                        aggregated[f'{field}_count'] = len(values)
-                    elif agg_type.lower() == 'max':
-                        aggregated[f'{field}_max'] = max(values) if values else None
-                    elif agg_type.lower() == 'min':
-                        aggregated[f'{field}_min'] = min(values) if values else None
+                    if values:
+                        if agg_type == "sum":
+                            aggregated[f"{field}_total"] = round(sum(values), 2)
+                        elif agg_type == "avg":
+                            aggregated[f"{field}_media"] = round(sum(values) / len(values), 2)
+                        elif agg_type == "count":
+                            aggregated[f"{field}_count"] = len(values)
+                        elif agg_type == "min":
+                            aggregated[f"{field}_minimo"] = round(min(values), 2)
+                        elif agg_type == "max":
+                            aggregated[f"{field}_maximo"] = round(max(values), 2)
+                    else:
+                        aggregated[f"{field}_{agg_type}"] = 0
+                
+                # Metadados
+                aggregated["total_registros"] = len(raw_data)
+                if request.filters:
+                    aggregated["filtros_aplicados"] = request.filters
                 
                 return SQLQueryResult(
                     success=True,
                     data=[aggregated],
-                    row_count=len(raw_data),
-                    query_info={"url": url, "method": "aggregate", "table": request.table},
-                    query_info_detail=f"Agregado em Python: {request.aggregation}"
+                    row_count=1,
+                    query_info={
+                        "url": url,
+                        "method": "aggregate_manual",
+                        "table": request.table,
+                        "raw_count": len(raw_data)
+                    }
                 )
-            
+                
         except Exception as e:
             return SQLQueryResult(
                 success=False,
-                error=f"Erro na execução da agregação: {str(e)}",
-                query_info={"url": url, "method": "aggregate", "table": request.table}
+                error=f"Erro na agregação: {str(e)}"
             )
-
+    
     async def _execute_count(self, request: SQLQueryRequest) -> SQLQueryResult:
-        """Executa contagem de registros (COUNT)"""
-        url = f"{self.supabase_url}/rest/v1/{request.table}"
-        
-        headers = self.headers.copy()
-        headers["Prefer"] = "count=exact" # Solicita a contagem total no header
-        
-        params = []
-        
-        # Aplicar filtros
-        if request.filters:
-            for field, value in request.filters.items():
-                if field in self.table_schemas[request.table]:
-                    params.append(f"{field}=eq.{value}")
-        
-        if params:
-            url += "?" + "&".join(params)
-        
-        print(f"🔗 SQL Count URL: {url}")
-        
+        """Conta registros com filtros"""
         try:
+            url = f"{self.supabase_url}/rest/v1/{request.table}"
+            params = ["select=id"]
+            
+            # Aplicar filtros
+            if request.filters:
+                for field, value in request.filters.items():
+                    if field in self.table_schemas[request.table]:
+                        params.append(f"{field}=eq.{value}")
+            
+            if params:
+                url += "?" + "&".join(params)
+            
+            print(f"🔗 Count Query URL: {url}")
+            
             async with httpx.AsyncClient() as client:
-                response = await client.head( # HEAD é mais eficiente para contagem
+                response = await client.get(
                     url,
-                    headers=headers,
+                    headers=self.headers,
                     timeout=settings.REQUEST_TIMEOUT
                 )
                 
-                if response.status_code != 200 and response.status_code != 206:
+                if response.status_code != 200:
                     return SQLQueryResult(
                         success=False,
                         error=f"API Error {response.status_code}: {response.text}"
                     )
-
-                # A contagem total vem no header Content-Range
-                content_range = response.headers.get("Content-Range")
-                if content_range:
-                    # Exemplo: "0-13/14" -> total é 14
-                    total_count = int(content_range.split('/')[-1])
-                else:
-                    # Fallback para contagem no body (menos eficiente)
-                    response_get = await client.get(url, headers=self.headers)
-                    total_count = len(response_get.json())
+                
+                data = response.json()
+                count = len(data)
+                
+                result = {
+                    "total": count,
+                    "tabela": request.table
+                }
+                
+                if request.filters:
+                    result["filtros_aplicados"] = request.filters
                 
                 return SQLQueryResult(
                     success=True,
-                    data=[{"total_count": total_count}],
-                    row_count=total_count,
+                    data=[result],
+                    row_count=1,
                     query_info={"url": url, "method": "count", "table": request.table}
                 )
-            
+                
         except Exception as e:
             return SQLQueryResult(
                 success=False,
-                error=f"Erro na execução da contagem: {str(e)}",
-                query_info={"url": url, "method": "count", "table": request.table}
+                error=f"Erro na contagem: {str(e)}"
             )
-
+    
     async def _execute_select(self, request: SQLQueryRequest) -> SQLQueryResult:
-        """Executa select simples com filtros e campos"""
-        url = f"{self.supabase_url}/rest/v1/{request.table}"
-        
-        params = []
-        
-        # Selecionar campos
-        select_fields = request.fields if request.fields else ["*"]
-        params.append(f"select={','.join(select_fields)}")
-        
-        # Aplicar filtros
-        if request.filters:
-            for field, value in request.filters.items():
-                if field in self.table_schemas[request.table]:
-                    params.append(f"{field}=eq.{value}")
-        
-        # Limite
-        params.append("limit=100") # Limite para evitar sobrecarga
-        
-        if params:
-            url += "?" + "&".join(params)
-        
-        print(f"🔗 SQL Select URL: {url}")
-        
+        """Seleciona registros com ordenação e limite"""
         try:
+            url = f"{self.supabase_url}/rest/v1/{request.table}"
+            params = []
+            
+            # Campos a selecionar (validar se existem)
+            if request.fields:
+                valid_fields = [
+                    f for f in request.fields 
+                    if f in self.table_schemas[request.table]
+                ]
+                if valid_fields:
+                    params.append(f"select={','.join(valid_fields)}")
+                else:
+                    params.append("select=*")
+            else:
+                params.append("select=*")
+            
+            # Filtros
+            if request.filters:
+                for field, value in request.filters.items():
+                    if field in self.table_schemas[request.table]:
+                        params.append(f"{field}=eq.{value}")
+            
+            # Ordenação
+            if request.order_by:
+                params.append(f"order={request.order_by}")
+            
+            # Limite
+            if request.limit:
+                params.append(f"limit={request.limit}")
+            
+            if params:
+                url += "?" + "&".join(params)
+            
+            print(f"🔗 Select Query URL: {url}")
+            
             async with httpx.AsyncClient() as client:
                 response = await client.get(
                     url,
@@ -391,26 +365,33 @@ class SQLAgent:
                     success=True,
                     data=data,
                     row_count=len(data),
-                    query_info={"url": url, "method": "select", "table": request.table}
+                    query_info={
+                        "url": url,
+                        "method": "select",
+                        "table": request.table
+                    }
                 )
-            
+                
         except Exception as e:
             return SQLQueryResult(
                 success=False,
-                error=f"Erro na execução do select: {str(e)}",
-                query_info={"url": url, "method": "select", "table": request.table}
+                error=f"Erro no select: {str(e)}"
             )
     
     async def _execute_filter(self, request: SQLQueryRequest) -> SQLQueryResult:
         """Filtra registros (redirecionado para select)"""
         return await self._execute_select(request)
-
-    # ... (outros métodos auxiliares como get_table_schema, get_available_tables, validate_query) ...
-    # (Não incluídos aqui para brevidade, mas devem estar no arquivo final)
     
-    # Adicionando um método auxiliar para garantir que o arquivo seja completo
     def get_table_schema(self, table_name: str) -> Dict[str, str]:
-        """Retorna schema de uma tabela"""
+        """
+        Retorna schema de uma tabela
+        
+        Args:
+            table_name: Nome da tabela
+        
+        Returns:
+            Dicionário com colunas e tipos
+        """
         return self.table_schemas.get(table_name, {})
     
     def get_available_tables(self) -> List[str]:
@@ -418,6 +399,45 @@ class SQLAgent:
         return list(self.table_schemas.keys())
     
     def validate_query(self, query_request: SQLQueryRequest) -> Dict[str, Any]:
-        """Valida uma query antes de executar (stub)"""
-        return {"success": True, "errors": []}
-
+        """
+        Valida uma query antes de executar
+        
+        Args:
+            query_request: Requisição de query
+        
+        Returns:
+            Dicionário com validação
+        """
+        errors = []
+        warnings = []
+        schema = {}
+        
+        # Validar tabela
+        if query_request.table not in self.table_schemas:
+            errors.append(f"Tabela '{query_request.table}' não existe")
+        else:
+            schema = self.table_schemas[query_request.table]
+            
+            # Validar campos
+            if query_request.fields:
+                for field in query_request.fields:
+                    if field not in schema:
+                        warnings.append(f"Campo '{field}' não existe na tabela")
+        
+        # Validar filtros
+        if query_request.filters:
+            for field in query_request.filters.keys():
+                if field not in schema:
+                    warnings.append(f"Filtro em campo '{field}' que não existe")
+        
+        # Validar agregações
+        if query_request.aggregation:
+            for field in query_request.aggregation.keys():
+                if field not in schema:
+                    warnings.append(f"Agregação em campo '{field}' que não existe")
+        
+        return {
+            "valid": len(errors) == 0,
+            "errors": errors,
+            "warnings": warnings
+        }

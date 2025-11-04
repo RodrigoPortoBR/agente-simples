@@ -1,31 +1,41 @@
-# services/memory_service.py
-
+"""Minimal memory service stub for validation"""
+from typing import Any, List, Dict, Optional
 from datetime import datetime
-from typing import Dict, List
+
 
 class MemoryService:
-    """
-    Serviço simples de memória em memória (pode ser substituído por Supabase).
-    """
-
     def __init__(self):
-        # Dicionário de sessões → lista de mensagens
-        self.sessions: Dict[str, List[Dict[str, str]]] = {}
+        self.store: List[Any] = []
+        self.session_id_to_messages: Dict[str, List[Dict[str, Any]]] = {}
 
-    async def add_message(self, session_id: str, role: str, content: str, metadata: dict = None):
-        """Adiciona uma mensagem na memória da sessão"""
-        if session_id not in self.sessions:
-            self.sessions[session_id] = []
+    def add(self, item: Any):
+        self.store.append(item)
 
-        self.sessions[session_id].append({
-            "role": role,
+    def list(self) -> List[Any]:
+        return list(self.store)
+
+    # Assíncronos para compatibilidade com OrchestratorAgent
+    async def add_message(
+        self,
+        session_id: str,
+        role: Any,
+        content: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        role_value = getattr(role, "value", role)
+        message = {
+            "role": role_value,
             "content": content,
             "metadata": metadata or {},
             "timestamp": datetime.now().isoformat(),
-        })
+        }
+        messages = self.session_id_to_messages.setdefault(session_id, [])
+        messages.append(message)
 
-    async def get_recent_context(self, session_id: str, num_messages: int = 6) -> List[Dict[str, str]]:
-        """Retorna as últimas mensagens da sessão"""
-        if session_id not in self.sessions:
-            return []
-        return self.sessions[session_id][-num_messages:]
+    async def get_recent_context(self, session_id: str, num_messages: int = 6) -> List[Dict[str, Any]]:
+        messages = self.session_id_to_messages.get(session_id, [])
+        return messages[-num_messages:]
+
+
+def get_service():
+    return MemoryService()
