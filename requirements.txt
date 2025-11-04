@@ -1,6 +1,7 @@
 # FastAPI e servidor
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
+jinja2==3.1.2
 
 # Validação de dados
 pydantic==2.10.6
@@ -14,5 +15,4 @@ openai==1.59.7
 
 # Utilitários
 python-dotenv==1.0.0
-
 python-multipart

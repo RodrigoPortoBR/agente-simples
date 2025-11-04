@@ -5,7 +5,9 @@ Arquitetura modular com Orchestrator + Agents especializados
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from datetime import datetime
 import os
 import uvicorn
@@ -14,6 +16,7 @@ import json
 from models import WebhookPayload, OrchestratorResponse
 from config import settings
 from agents.orchestrator_agent import OrchestratorAgent
+from agents.sql_agent import SQLAgent
 
 # ===================================
 # INICIALIZAÇÃO
@@ -34,7 +37,9 @@ origins = [
     "https://lovable.dev",
     "https://app.lovable.dev",
     "http://localhost:3000",
-    "http://127.0.0.1:3000"
+    "http://127.0.0.1:3000",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000"
 ]
 
 app.add_middleware(
@@ -45,16 +50,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Instância global do Orquestrador
+# Mount static files and templates
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
+
+# Instâncias globais dos agentes
 orchestrator = OrchestratorAgent()
+sql_agent = SQLAgent()
 
 # ===================================
 # ENDPOINTS DE SISTEMA
 # ===================================
 
-@app.get("/")
-def home():
-    """Endpoint raiz"""
+@app.get("/", response_class=HTMLResponse)
+async def home(request: Request):
+    """Render the testing interface"""
+    return templates.TemplateResponse("index.html", {"request": request})
+
+@app.get("/api")
+def api_info():
+    """API information endpoint"""
     return {
         "message": "🤖 Sistema de Agentes Orquestradores",
         "version": "5.0.0 - CORS Fixed",
@@ -73,7 +88,8 @@ def home():
             "✅ SQL Agent sem lógica de negócio",
             "✅ Context window management",
             "✅ Error handling robusto",
-            "✅ CORS configurado corretamente"
+            "✅ CORS configurado corretamente",
+            "✅ Interface local para testes"
         ]
     }
 
@@ -94,6 +110,50 @@ def health_check():
             "context_window": settings.CONTEXT_WINDOW_MESSAGES
         }
     }
+
+# ===================================
+# ENDPOINTS DE CHAT
+# ===================================
+
+@app.post("/chat")
+async def chat_endpoint(request: Request):
+    """Endpoint unificado de chat"""
+    try:
+        data = await request.json()
+        message = data.get("message", "").strip()
+        session_id = data.get("sessionId", f"chat_session_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+
+        if not message:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "error": "Mensagem não fornecida",
+                    "response": "Por favor, digite uma mensagem para começar."
+                }
+            )
+
+        # Processa via orquestrador
+        result = await orchestrator.process_user_message(message, session_id)
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                "success": True,
+                "response": result.response,
+                "session_id": result.session_id
+            }
+        )
+
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": str(e),
+                "response": "Desculpe, ocorreu um erro ao processar sua mensagem. Por favor, tente novamente."
+            }
+        )
 
 # ===================================
 # ENDPOINT PRINCIPAL (WEBHOOK)
@@ -178,11 +238,19 @@ async def webhook_generic(payload: WebhookPayload):
 # ===================================
 
 if __name__ == "__main__":
+    # Install required packages if not present
+    try:
+        import jinja2
+    except ImportError:
+        print("Installing required packages...")
+        import subprocess
+        subprocess.check_call(["pip", "install", "jinja2"])
+    
     port = int(os.getenv("PORT", 8000))
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
         port=port,
-        reload=False,
+        reload=True,  # Enable auto-reload for development
         log_level="info"
     )

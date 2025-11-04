@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     SUPABASE_ANON_KEY: str = os.getenv("SUPABASE_ANON_KEY", "")
 
     # OpenAI
-    OPENAI_MODEL: str = "gpt-4o-mini"
+    OPENAI_MODEL: str = "gpt-4"  # or gpt-3.5-turbo if gpt-4 is not available
     OPENAI_TEMPERATURE: float = 0.7
     OPENAI_MAX_TOKENS: int = 500
 
