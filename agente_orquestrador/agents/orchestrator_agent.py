@@ -63,9 +63,9 @@ SUA FUNÇÃO:
 - Responder perguntas sobre NEGÓCIO e PERFORMANCE
 - Fornecer INSIGHTS acionáveis baseados em dados
 
-DADOS DISPONÍVEIS (Lovable Cloud - Supabase):
+DADOS DISPONÍVEIS (Novo Supabase):
 
-📊 CLIENTES (tabela: clientes)
+📊 CLIENTES (tabela: Visão_cliente)
 - CPF, cluster, pedidos_12m, recencia_dias
 - receita_bruta_12m, receita_liquida_12m
 - qtde_produtos, cmv_12m, desconto
@@ -73,18 +73,17 @@ DADOS DISPONÍVEIS (Lovable Cloud - Supabase):
 - mcc (margem contribuição), mcc_pct
 - despesas
 
-🎯 CLUSTERS (tabela: clusters)
+🎯 CLUSTERS (tabela: Visão_cluster)
 - id, label (nome do cluster)
 - gm_total, gm_pct_medio
 - clientes (quantidade), freq_media, recencia_media
 - gm_cv (volatilidade), tendencia
 
-📈 SÉRIES TEMPORAIS (tabela: monthly_series)
-- month (YYYY-MM)
-- receita_bruta, receita_liquida, cmv, margem_bruta
-- clusters (dados JSON por mês)
+⚠️ SÉRIES TEMPORAIS - TEMPORARIAMENTE INDISPONÍVEL
+- Tabela ainda não criada no novo banco de dados
+- Comparações de período desabilitadas até nova ordem
 
-🛒 PEDIDOS (tabela: pedidos)
+🛒 PEDIDOS (tabela: Visão_pedidos)
 - pedido_id, cliente_id, data
 - receita_bruta, margem_bruta, categoria
 
@@ -245,46 +244,45 @@ PERGUNTA DO USUÁRIO: "{user_message}"
 
 AGENTES ESPECIALIZADOS DISPONÍVEIS:
 
-1. **PERIOD_COMPARISON_AGENT** - Comparação de Períodos
-   - Use para: Comparar métricas entre períodos (meses, trimestres, anos)
-   - Palavras-chave: "comparar", "variação", "crescimento", "trend", "entre períodos", "vs", "versus"
-   - Exemplos: "Compare receita deste mês com mês anterior", "Variação da margem entre Q1 e Q2"
+⚠️ 1. **PERIOD_COMPARISON_AGENT** - TEMPORARIAMENTE DESABILITADO
+   - Aguardando criação da tabela de séries temporais
+   - NÃO utilize este agente até nova ordem
 
 2. **CLIENT_VIEW_AGENT** - Visão Cliente
    - Use para: Análise de clientes (perfil, ranking, cluster, recência)
    - Palavras-chave: "cliente(s)", "clientes", "perfil", "cluster", "recência", "top clientes"
    - Exemplos: "Top 10 clientes por receita", "Clientes do cluster premium", "Clientes inativos"
 
-3. **SALE_VIEW_AGENT** - Visão Venda
+2. **SALE_VIEW_AGENT** - Visão Venda
    - Use para: Análise de vendas/pedidos (transações, pedidos individuais)
    - Palavras-chave: "venda(s)", "pedido(s)", "transação", "id_venda", "pedido_id"
    - Exemplos: "Top 20 vendas por receita", "Vendas do mês de janeiro", "Vendas por categoria"
 
-4. **PRODUCT_VIEW_AGENT** - Visão Produto
+3. **PRODUCT_VIEW_AGENT** - Visão Produto
    - Use para: Análise de produtos/categorias
    - Palavras-chave: "produto(s)", "categoria", "categorias", "item", "produtos mais vendidos"
    - Exemplos: "Produtos mais vendidos", "Categorias com maior margem", "Performance por categoria"
 
-5. **CLUSTER_VIEW_AGENT** - Visão Cluster
+4. **CLUSTER_VIEW_AGENT** - Visão Cluster
    - Use para: Análise de clusters (comportamento consolidado por cluster)
    - Palavras-chave: "cluster", "clusters", "comportamento", "segmento", "grupo"
    - Exemplos: "Compare performance entre clusters", "Qual cluster tem maior receita?", "Analise tendências dos clusters"
 
-DADOS DISPONÍVEIS:
-• clientes: receita_bruta_12m, gm_12m, mcc, cluster, pedidos_12m, recencia_dias
-• clusters: label, gm_total, gm_pct_medio, clientes, freq_media, tendencia
-• monthly_series: receita_bruta, margem_bruta por mês
-• pedidos: pedido_id, cliente_id, receita_bruta, margem_bruta, categoria, data
+DADOS DISPONÍVEIS (Novo banco Supabase):
+• Visão_cliente: receita_bruta_12m, gm_12m, mcc, cluster, pedidos_12m, recencia_dias
+• Visão_cluster: label, gm_total, gm_pct_medio, clientes, freq_media, tendencia
+• Visão_pedidos: pedido_id, cliente_id, receita_bruta, margem_bruta, categoria, data
+⚠️ Séries temporais: INDISPONÍVEL (tabela ainda não criada)
 
 RESPONDA EM JSON:
 {{
   "intent_type": "data_analysis" | "general_chat",
   "confidence": 0.0-1.0,
   "needs_data_analysis": true/false,
-  "requires_agent": "period_comparison_agent" | "client_view_agent" | "sale_view_agent" | "product_view_agent" | "cluster_view_agent" | null,
+  "requires_agent": "client_view_agent" | "sale_view_agent" | "product_view_agent" | "cluster_view_agent" | null,
   "extracted_parameters": {{
     "analysis_type": "comparison" | "list" | "aggregate" | "filter",
-    "table": "clientes" | "clusters" | "pedidos" | "monthly_series",
+    "table": "Visão_cliente" | "Visão_cluster" | "Visão_pedidos",
     "metric": "receita_bruta" | "margem_bruta" | "clientes" | etc,
     "period1": "2024-01" | null,
     "period2": "2024-02" | null,

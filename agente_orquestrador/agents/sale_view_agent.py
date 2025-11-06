@@ -22,7 +22,7 @@ class SaleViewAgent:
     - Analisar padrões de vendas
     
     TABELA PRINCIPAL:
-    - pedidos: Cada linha = uma venda (id_venda/pedido_id) com métricas
+    - Visão_pedidos: Cada linha = uma venda (id_venda/pedido_id) com métricas
       - pedido_id, cliente_id, data
       - receita_bruta, margem_bruta
       - categoria
@@ -120,7 +120,7 @@ class SaleViewAgent:
         Analisa dados de vendas
         """
         try:
-            url = f"{self.supabase_url}/rest/v1/pedidos"
+            url = f"{self.supabase_url}/rest/v1/Visão_pedidos"
             params = []
             
             # Selecionar campos

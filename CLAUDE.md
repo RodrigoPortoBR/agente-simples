@@ -92,11 +92,11 @@ The system uses a two-tier architecture:
    - Manages conversation memory
 
 2. **Specialized Agents** (5 types):
-   - `ClientViewAgent` - Customer data (table: `clientes`)
-   - `ClusterViewAgent` - Customer segments (table: `clusters`)
-   - `PeriodComparisonAgent` - Time-series analysis (table: `monthly_series`)
-   - `SaleViewAgent` - Transaction data (table: `pedidos`)
-   - `ProductViewAgent` - Product/category data (table: `pedidos` aggregated)
+   - `ClientViewAgent` - Customer data (table: `Visão_cliente`)
+   - `ClusterViewAgent` - Customer segments (table: `Visão_cluster`)
+   - `PeriodComparisonAgent` - Time-series analysis ⚠️ **TEMPORARILY DISABLED** (awaiting time-series table)
+   - `SaleViewAgent` - Transaction data (table: `Visão_pedidos`)
+   - `ProductViewAgent` - Product/category data (table: `Visão_pedidos` aggregated)
 
 ### Intent Analysis Flow
 
@@ -116,11 +116,11 @@ The orchestrator uses `_analyze_business_intent()` to:
 
 ### Data Model
 
-**Supabase Tables:**
-- `clientes` - Customer metrics (revenue, margin, cluster, recency, frequency)
-- `clusters` - Segment aggregates (5 clusters: Premium=1, Alto=2, Médio=3, Baixo=4, Novos=5)
-- `monthly_series` - Time-series monthly data
-- `pedidos` - Individual transactions/orders
+**Supabase Tables (New Database - Portuguese naming convention):**
+- `Visão_cliente` - Customer metrics (revenue, margin, cluster, recency, frequency)
+- `Visão_cluster` - Segment aggregates (5 clusters: Premium=1, Alto=2, Médio=3, Baixo=4, Novos=5)
+- ⚠️ Time-series table - **NOT YET CREATED** (Period comparison temporarily disabled)
+- `Visão_pedidos` - Individual transactions/orders
 
 **Key Metrics:**
 - `receita_bruta_12m` / `receita_liquida_12m` - Revenue
@@ -204,8 +204,11 @@ Located in `agente_orquestrador/.env`:
 ```
 OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-4
-SUPABASE_URL=https://...supabase.co
+
+# New Supabase Database (migrated from Lovable Cloud)
+SUPABASE_URL=https://qtetgofuzwcsszozcgwv.supabase.co
 SUPABASE_ANON_KEY=eyJ...
+# Tables: Visão_cliente, Visão_cluster, Visão_pedidos
 ```
 
 ## Important Notes
@@ -217,3 +220,20 @@ SUPABASE_ANON_KEY=eyJ...
 - **Session Isolation**: Each `session_id` maintains separate conversation history
 - **Portuguese Output**: All user-facing responses are in Brazilian Portuguese
 - **Business Focus**: System is specialized for e-commerce metrics, not a general-purpose SQL agent
+
+## Database Migration Notes
+
+**Migration Date**: 2025-11-05
+**Previous**: Lovable Cloud backend
+**Current**: New Supabase instance at `https://qtetgofuzwcsszozcgwv.supabase.co`
+
+**Table Name Changes** (Portuguese naming convention):
+- `clientes` → `Visão_cliente`
+- `clusters` → `Visão_cluster`
+- `pedidos` → `Visão_pedidos`
+- `monthly_series` → ⚠️ **Not yet created** (PeriodComparisonAgent disabled)
+
+**Future Work**:
+- Create time-series table for period comparisons
+- Create dedicated product table (currently using aggregated `Visão_pedidos`)
+- Re-enable PeriodComparisonAgent when time-series table is available

@@ -1,6 +1,8 @@
 """
 Period Comparison Agent - Especialista em Comparação de Períodos
 Analisa e compara resultados entre diferentes períodos temporais
+
+⚠️ ATENÇÃO: Este agente está DESABILITADO até que a tabela de séries temporais seja criada.
 """
 import httpx
 from typing import Dict, Any, List, Optional
@@ -46,15 +48,28 @@ class PeriodComparisonAgent:
     async def process_instruction(self, instruction: AgentInstruction) -> AgentResponse:
         """
         Processa instrução de comparação de períodos
-        
+
+        ⚠️ TEMPORARIAMENTE DESABILITADO: Aguardando criação da tabela de séries temporais
+
         Args:
             instruction: Instrução com parâmetros de comparação
-        
+
         Returns:
             AgentResponse com dados comparativos
         """
         start_time = datetime.now()
-        
+
+        # AGENTE DESABILITADO - Retornar erro informativo
+        execution_time = (datetime.now() - start_time).total_seconds()
+        return AgentResponse(
+            success=False,
+            agent_type=AgentType.PERIOD_COMPARISON,
+            error="Funcionalidade de comparação de períodos temporariamente indisponível. A tabela de séries temporais ainda não foi criada no novo banco de dados.",
+            execution_time=execution_time
+        )
+
+        # TODO: Reativar código abaixo quando a tabela de séries temporais for criada
+        """
         try:
             params = instruction.parameters
             
@@ -104,6 +119,7 @@ class PeriodComparisonAgent:
                 error=str(e),
                 execution_time=execution_time
             )
+        """
     
     async def _compare_periods(
         self,

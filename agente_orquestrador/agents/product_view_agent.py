@@ -25,8 +25,8 @@ class ProductViewAgent:
     agregar dados de pedidos por produto/categoria
     
     TABELAS PRINCIPAIS:
-    - pedidos: Agregar por categoria (campo categoria)
-    - Se houver tabela produtos: dados consolidados por produto
+    - Visão_pedidos: Agregar por categoria (campo categoria)
+    - TODO: Futura migração para tabela de produtos dedicada quando disponível
     
     EXEMPLOS DE ANÁLISES:
     - "Quais são os produtos mais vendidos por receita?"
@@ -119,7 +119,8 @@ class ProductViewAgent:
         """
         try:
             # Buscar dados de pedidos para agregar por produto/categoria
-            url = f"{self.supabase_url}/rest/v1/pedidos"
+            # TODO: Migrar para tabela de produtos dedicada quando disponível
+            url = f"{self.supabase_url}/rest/v1/Visão_pedidos"
             params = ["select=categoria,receita_bruta,margem_bruta,data"]
             
             # Aplicar filtros

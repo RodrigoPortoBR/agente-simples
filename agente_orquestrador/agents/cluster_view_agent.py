@@ -23,7 +23,7 @@ class ClusterViewAgent:
     - Analisar performance e saúde de cada cluster
     
     TABELA PRINCIPAL:
-    - clusters: Cada linha = um cluster com métricas consolidadas
+    - Visão_cluster: Cada linha = um cluster com métricas consolidadas
       - id, label (nome do cluster)
       - gm_total (margem bruta total)
       - gm_pct_medio (margem bruta média em %)
@@ -140,7 +140,7 @@ class ClusterViewAgent:
         Analisa dados de clusters
         """
         try:
-            url = f"{self.supabase_url}/rest/v1/clusters"
+            url = f"{self.supabase_url}/rest/v1/Visão_cluster"
             params = []
             
             # Selecionar campos

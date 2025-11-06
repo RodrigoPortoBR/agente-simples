@@ -22,7 +22,7 @@ class ClientViewAgent:
     - Analisar comportamento de clientes por cluster
     
     TABELA PRINCIPAL:
-    - clientes: Cada linha = um cliente_id com métricas consolidadas
+    - Visão_cliente: Cada linha = um cliente_id com métricas consolidadas
       - receita_bruta_12m, receita_liquida_12m
       - gm_12m (margem bruta), gm_pct_12m
       - mcc (margem contribuição), mcc_pct
@@ -119,7 +119,7 @@ class ClientViewAgent:
         Analisa dados de clientes
         """
         try:
-            url = f"{self.supabase_url}/rest/v1/clientes"
+            url = f"{self.supabase_url}/rest/v1/Visão_cliente"
             params = []
             
             # Selecionar campos
