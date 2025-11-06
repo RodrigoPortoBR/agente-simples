@@ -31,7 +31,6 @@ This is a multi-agent e-commerce data analysis system built with Python and Fast
 │   ├── config.py                 # Settings and environment variables
 │   ├── main.py                   # FastAPI application entry point
 │   └── test_system.py            # System integration tests
-├── agente_simples/               # Legacy simple agent (reference only)
 ├── *_github.py                   # Root-level validation/reference files
 └── .env                          # Environment variables (in agente_orquestrador/)
 ```
