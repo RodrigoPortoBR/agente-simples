@@ -146,7 +146,7 @@ class ClusterViewAgent:
             # Selecionar campos
             if fields:
                 valid_fields = [
-                    "id", "label", "gm_total", "gm_pct_medio",
+                    "id", "gm_total", "gm_pct_medio",
                     "clientes", "freq_media", "recencia_media",
                     "gm_cv", "tendencia", "updated_at"
                 ]
@@ -162,8 +162,6 @@ class ClusterViewAgent:
             for field, value in filters.items():
                 if field == "id":
                     params.append(f"id=eq.{value}")
-                elif field == "label":
-                    params.append(f"label=eq.{value}")
                 elif field == "tendencia":
                     # Filtro por tendência (positiva/negativa)
                     if isinstance(value, dict):
