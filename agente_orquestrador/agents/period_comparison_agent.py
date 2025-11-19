@@ -9,7 +9,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 import json
 
-from models import AgentInstruction, AgentResponse, AgentType
+from app_models import AgentInstruction, AgentResponse, AgentType
 from config import settings
 
 

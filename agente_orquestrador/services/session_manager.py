@@ -8,10 +8,14 @@ import json
 import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
-import redis
-from redis.exceptions import RedisError
+try:
+    import redis
+    from redis.exceptions import RedisError
+except ImportError:
+    redis = None
+    RedisError = Exception
 
-from models.schemas import (
+from app_models import (
     SessionState, 
     ConversationMessage, 
     MessageRole,
@@ -40,9 +44,13 @@ class SessionManager:
         
         # Tentar conectar ao Redis
         try:
-            self.redis_client = redis.from_url(self.redis_url, decode_responses=True)
-            self.redis_client.ping()
-            logger.info("Redis connection established")
+            if redis is not None:
+                self.redis_client = redis.from_url(self.redis_url, decode_responses=True)
+                self.redis_client.ping()
+                logger.info("Redis connection established")
+            else:
+                logger.warning("Redis module not available, using in-memory storage")
+                self._memory_storage = {}
         except Exception as e:
             logger.warning(f"Redis not available, using in-memory storage: {str(e)}")
             self.redis_client = None

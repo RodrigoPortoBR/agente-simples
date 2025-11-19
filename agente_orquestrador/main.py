@@ -10,12 +10,13 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 
 from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 import uvicorn
 
-from models import (
+from app_models import (
     WebhookPayload, 
     OrchestratorResponse,
     MessageRole
@@ -75,15 +76,10 @@ async def shutdown_event():
 
 
 @app.get("/")
-async def root():
-    """Endpoint raiz com informações básicas da API."""
-    return {
-        "message": "Sistema de Agentes Orquestradores",
-        "version": "1.0.0",
-        "status": "running",
-        "uptime": str(datetime.now() - stats["start_time"]),
-        "stats": stats
-    }
+async def serve_frontend():
+    """Serve the frontend HTML."""
+    from fastapi.responses import FileResponse
+    return FileResponse("frontend/index.html")
 
 
 @app.get("/health")
@@ -110,8 +106,8 @@ async def health_check():
         raise HTTPException(status_code=503, detail="Service unhealthy")
 
 
-@app.post("/webhook/lovable")
-async def lovable_webhook(
+@app.post("/webhook/chat")
+async def chat_webhook(
     request: Request,
     background_tasks: BackgroundTasks
 ):
@@ -346,6 +342,10 @@ async def global_exception_handler(request: Request, exc: Exception):
             "timestamp": datetime.now().isoformat()
         }
     )
+
+
+# Mount static files LAST so API routes take precedence
+app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
 
 
 if __name__ == "__main__":

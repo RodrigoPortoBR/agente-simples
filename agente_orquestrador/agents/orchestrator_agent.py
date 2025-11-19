@@ -7,7 +7,7 @@ import json
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
-from models import (
+from app_models import (
     OrchestratorResponse, 
     AgentInstruction, 
     AgentType, 

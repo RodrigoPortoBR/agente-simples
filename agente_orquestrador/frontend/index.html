@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Orquestrador de Agentes - Chat</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <header>
+            <h1>Orquestrador de Agentes</h1>
+            <p class="subtitle">Assistente de Análise de Dados</p>
+        </header>
+
+        <main class="chat-container" id="chat-container">
+            <div class="welcome-message">
+                <h2>Olá! Como posso ajudar com seus dados hoje?</h2>
+                <p>Sou um assistente especializado em análise de e-commerce. Posso ajudar com:</p>
+            </div>
+            
+            <div class="suggestions-grid" id="suggestions-grid">
+                <button class="suggestion-card" onclick="sendSuggestion('Qual a receita do cluster premium?')">
+                    <span class="icon">💰</span>
+                    <span class="text">Qual a receita do cluster premium?</span>
+                </button>
+                <button class="suggestion-card" onclick="sendSuggestion('Quantos clientes novos entraram este mês?')">
+                    <span class="icon">👥</span>
+                    <span class="text">Quantos clientes novos entraram este mês?</span>
+                </button>
+                <button class="suggestion-card" onclick="sendSuggestion('Compare a margem entre Q1 e Q2')">
+                    <span class="icon">📊</span>
+                    <span class="text">Compare a margem entre Q1 e Q2</span>
+                </button>
+                <button class="suggestion-card" onclick="sendSuggestion('Quais os top 5 produtos por receita?')">
+                    <span class="icon">🏆</span>
+                    <span class="text">Quais os top 5 produtos por receita?</span>
+                </button>
+            </div>
+
+            <div id="chat-history"></div>
+            
+            <div class="typing-indicator" id="typing-indicator" style="display: none;">
+                <span></span><span></span><span></span>
+            </div>
+        </main>
+
+        <footer class="input-area">
+            <div class="input-wrapper">
+                <textarea 
+                    id="user-input" 
+                    placeholder="Digite sua pergunta sobre os dados..." 
+                    rows="1"
+                    onkeydown="handleKeyPress(event)"
+                ></textarea>
+                <button id="send-btn" onclick="sendMessage()">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-6 h-6">
+                        <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
+                    </svg>
+                </button>
+            </div>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
